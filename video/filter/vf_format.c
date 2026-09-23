@@ -99,7 +99,7 @@ static void set_params(struct vf_format_opts *p, struct mp_image_params *out,
         out->light = p->light;
     if (p->chroma_location)
         out->chroma_location = p->chroma_location;
-    if (p->stereo_in)
+    if (p->stereo_in >= 0)
         out->stereo3d = p->stereo_in;
     if (p->rotate >= 0)
         out->rotate = p->rotate;
@@ -288,6 +288,7 @@ const struct mp_user_filter_entry vf_format = {
         .name = "format",
         .priv_size = sizeof(OPT_BASE_STRUCT),
         .priv_defaults = &(const OPT_BASE_STRUCT){
+            .stereo_in = -1,
             .rotate = -1,
             .dovi = true,
             .hdr10plus = true,
