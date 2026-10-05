@@ -19,6 +19,9 @@ pl_vulkan mppl_create_vulkan(struct vulkan_opts *opts,
 // Handles a resize request, and updates ctx->vo->dwidth/dheight
 bool ra_vk_ctx_resize(struct ra_ctx *ctx, int width, int height);
 
+// The same for the video layer's swapchain
+bool ra_vk_ctx_resize_video(struct ra_ctx *ctx, int width, int height);
+
 // May be called on a ra_ctx of any type.
 struct mpvk_ctx *ra_vk_ctx_get(struct ra_ctx *ctx);
 
