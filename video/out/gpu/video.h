@@ -194,6 +194,11 @@ enum {
     // Only the OSD and subtitles, over a transparent target, once each for the
     // window's surface above the video layer
     RENDER_FRAME_CONTROLS = 1 << 4,
+    // One of several views of the same frame, each drawn at its own place of the
+    // target: no interpolation and no cached output, and for the later views the
+    // target is left as it is
+    RENDER_FRAME_VIEW = 1 << 5,
+    RENDER_FRAME_KEEP = 1 << 6,
     RENDER_FRAME_DEF = RENDER_FRAME_SUBS | RENDER_FRAME_OSD | RENDER_SCREEN_COLOR,
 };
 

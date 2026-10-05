@@ -3561,7 +3561,8 @@ void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame,
     clear_color[0] *= clear_color[3];
     clear_color[1] *= clear_color[3];
     clear_color[2] *= clear_color[3];
-    p->ra->fns->clear(p->ra, fbo->tex, clear_color, &target_rc);
+    if (!(flags & RENDER_FRAME_KEEP))
+        p->ra->fns->clear(p->ra, fbo->tex, clear_color, &target_rc);
 
     if (p->hwdec_overlay && !controls) {
         if (has_frame) {
@@ -3582,7 +3583,8 @@ void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame,
 
     if (has_frame) {
         bool interpolate = p->opts.interpolation && frame->display_synced &&
-                           (p->frames_drawn || !frame->still);
+                           (p->frames_drawn || !frame->still) &&
+                           !(flags & RENDER_FRAME_VIEW);
         if (interpolate) {
             double ratio = frame->ideal_frame_duration / frame->vsync_interval;
             if (fabs(ratio - 1.0) < p->opts.interpolation_threshold)
@@ -3610,6 +3612,7 @@ void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame,
                 bool repeats = frame->num_vsyncs > 1 && frame->display_synced;
                 bool r = false;
                 if ((repeats || frame->still) && !p->dumb_mode &&
+                    !(flags & RENDER_FRAME_VIEW) &&
                     (p->ra->caps & RA_CAP_BLIT) && fbo->tex->params.blit_dst)
                 {
                     // Attempt to use the same format as the destination FBO

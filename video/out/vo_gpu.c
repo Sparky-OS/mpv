@@ -55,6 +55,8 @@ struct gpu_priv {
 
     // The video layer, when there is one, holds both views of a 3D video
     bool stereo;
+    struct mp_rect src, dst;
+    struct mp_osd_res osd;
 };
 static void resize(struct vo *vo)
 {
@@ -67,11 +69,9 @@ static void resize(struct vo *vo)
     struct mp_rect src, dst;
     struct mp_osd_res osd;
     vo_get_src_dst_rects(vo, &src, &dst, &osd);
-    // Each eye gets the picture at the window's size
-    if (p->stereo) {
-        dst.x0 *= 2;
-        dst.x1 *= 2;
-    }
+    p->src = src;
+    p->dst = dst;
+    p->osd = osd;
 
     gl_video_resize(p->renderer, &src, &dst, &osd);
 
@@ -112,8 +112,23 @@ static bool draw_frame_layers(struct vo *vo, struct vo_frame *frame)
     if (!sw->fns->start_frame(sw, &fbo))
         return VO_FALSE;
     bool video_ok = video_sw->fns->start_frame(video_sw, &video_fbo);
-    if (video_ok)
+    if (video_ok && !p->stereo) {
         gl_video_render_frame(p->renderer, frame, &video_fbo, RENDER_SCREEN_COLOR);
+    } else if (video_ok) {
+        // Each eye gets its view at the window's size, centred in its half of the
+        // video layer, as for a window that shows one view
+        int half = (p->src.x1 - p->src.x0) / 2;
+        for (int view = 0; view < 2; view++) {
+            struct mp_rect src = p->src, dst = p->dst;
+            src.x0 += view * half;
+            src.x1 = src.x0 + half;
+            dst.x0 += view * vo->dwidth;
+            dst.x1 += view * vo->dwidth;
+            gl_video_resize(p->renderer, &src, &dst, &p->osd);
+            gl_video_render_frame(p->renderer, frame, &video_fbo, RENDER_SCREEN_COLOR |
+                                  RENDER_FRAME_VIEW | (view ? RENDER_FRAME_KEEP : 0));
+        }
+    }
 
     sw->fns->start_frame(sw, NULL); // for contexts with a surface each
     gl_video_render_frame(p->renderer, frame, &fbo,
