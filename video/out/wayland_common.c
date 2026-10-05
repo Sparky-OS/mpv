@@ -41,6 +41,10 @@
 #include "wayland_common.h"
 #include "win_state.h"
 
+#if HAVE_STEREO_DECLARE
+#include "stereo-declare.h"
+#endif
+
 // Generated from wayland-protocols
 #include "idle-inhibit-unstable-v1.h"
 #include "text-input-unstable-v3.h"
@@ -4576,6 +4580,10 @@ bool vo_wayland_init(struct vo *vo)
     wl->registry = wl_display_get_registry(wl->display);
     wl_registry_add_listener(wl->registry, &registry_listener, wl);
 
+#if HAVE_STEREO_DECLARE
+    wl->stereo_declare = stereo_declare_wayland_init(wl->display, NULL) == 0;
+#endif
+
     /* Do a roundtrip to run the registry */
     wl_display_roundtrip(wl->display);
 
@@ -4809,6 +4817,28 @@ bool vo_wayland_reconfig(struct vo *vo)
     return true;
 }
 
+bool vo_wayland_set_stereo_content(struct vo_wayland_state *wl, bool active)
+{
+#if HAVE_STEREO_DECLARE
+    if (!wl->stereo_declare)
+        return false;
+
+    int ret = active ?
+        stereo_declare_wayland(wl->video_surface, STEREO_SBS_FULL,
+                               STEREO_CLASS_VIDEO, STEREO_VIDEO_CURRENT) :
+        stereo_remove_wayland(wl->video_surface);
+    if (ret < 0) {
+        MP_WARN(wl, "Updating the stereo declaration failed: %s\n",
+                mp_strerror(-ret));
+        return false;
+    }
+    wl_surface_commit(wl->video_surface);
+    return true;
+#else
+    return false;
+#endif
+}
+
 void vo_wayland_set_opaque_region(struct vo_wayland_state *wl, bool alpha)
 {
     const int32_t width = lrint(mp_rect_w(wl->geometry) / wl->scaling_factor);
@@ -4834,6 +4864,11 @@ void vo_wayland_uninit(struct vo *vo)
     // Ensure that any in-flight vo_wayland_preferred_description_info get deallocated.
     if (wl->display)
         wl_display_roundtrip(wl->display);
+
+#if HAVE_STEREO_DECLARE
+    if (wl->stereo_declare)
+        stereo_declare_wayland_finish();
+#endif
 
     if (wl->compositor)
         wl_compositor_destroy(wl->compositor);
