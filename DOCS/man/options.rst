@@ -1847,6 +1847,15 @@ Video
     ``auto`` will automatically try to detect the field order of the video,
     ``tff`` forces top field first while ``bff`` forces bottom field first.
 
+``--video-stereo=<yes|no>``
+    Convert a video that signals 3D packing (H.264/H.265 frame packing SEI,
+    Matroska StereoMode, MP4 stereo metadata) to full side by side, left eye
+    first, and declare the video surface as stereo content to the compositor
+    when the output supports it (default: yes). Whatever the packing and eye
+    order of the stream, the result is the same. Subtitles and the OSD are
+    drawn once per eye, at one eye's size. Videos that do not signal 3D are
+    not touched.
+
 ``--frames=<number>``
     Play/convert only first ``<number>`` video frames, then quit.
 

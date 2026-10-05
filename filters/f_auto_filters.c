@@ -355,6 +355,179 @@ struct vflip_priv {
     int target_vflip;
 };
 
+struct stereo_priv {
+    struct mp_subfilter sub;
+    int prev_stereo3d;
+    int prev_imgfmt;
+    struct m_config_cache *opts;
+};
+
+static const char *stereo_input_name(int mode)
+{
+    switch (mode) {
+    case MP_STEREO3D_SBS2L: return "sbs2l";
+    case MP_STEREO3D_SBS2R: return "sbs2r";
+    case MP_STEREO3D_AB2L:  return "ab2l";
+    case MP_STEREO3D_AB2R:  return "ab2r";
+    case MP_STEREO3D_SBSL:  return "sbsl";
+    case MP_STEREO3D_SBSR:  return "sbsr";
+    case MP_STEREO3D_ABL:   return "abl";
+    case MP_STEREO3D_ABR:   return "abr";
+    case MP_STEREO3D_IRL:   return "irl";
+    case MP_STEREO3D_IRR:   return "irr";
+    case MP_STEREO3D_ICL:   return "icl";
+    case MP_STEREO3D_ICR:   return "icr";
+    case MP_STEREO3D_AL:    return "al";
+    case MP_STEREO3D_AR:    return "ar";
+    default: return NULL;
+    }
+}
+
+static void stereo_process(struct mp_filter *f)
+{
+    struct stereo_priv *p = f->priv;
+
+    if (!mp_subfilter_read(&p->sub))
+        return;
+
+    struct mp_frame frame = p->sub.frame;
+
+    if (mp_frame_is_signaling(frame)) {
+        mp_subfilter_continue(&p->sub);
+        return;
+    }
+
+    if (frame.type != MP_FRAME_VIDEO) {
+        MP_ERR(f, "video input required!\n");
+        mp_filter_internal_mark_failed(f);
+        return;
+    }
+
+    struct mp_image *img = frame.data;
+
+    m_config_cache_update(p->opts);
+    const char *input = stereo_input_name(img->params.stereo3d);
+    struct filter_opts *opts = p->opts->opts;
+    bool wanted = opts->video_stereo && input;
+
+    if (img->imgfmt != p->prev_imgfmt || img->params.stereo3d != p->prev_stereo3d ||
+        (p->sub.filter && !wanted))
+    {
+        p->prev_imgfmt = img->imgfmt;
+        p->prev_stereo3d = img->params.stereo3d;
+        if (!mp_subfilter_drain_destroy(&p->sub))
+            return;
+    }
+
+    if (!wanted) {
+        mp_subfilter_continue(&p->sub);
+        return;
+    }
+
+    if (!p->sub.filter) {
+        struct mp_filter *subf = mp_bidir_dummy_filter_create(f);
+        struct mp_filter *filters[3] = {0};
+
+        struct mp_autoconvert *conv = mp_autoconvert_create(subf);
+        if (conv) {
+            filters[0] = conv->f;
+            mp_autoconvert_add_all_sw_imgfmts(conv);
+
+            if (!mp_autoconvert_probe_input_video(conv, img)) {
+                MP_ERR(f, "no stereo3d filter available for format %s\n",
+                       mp_imgfmt_to_name(img->imgfmt));
+                talloc_free(subf);
+                mp_subfilter_continue(&p->sub);
+                return;
+            }
+        }
+
+        char *args[] = {"in", (char *)input, "out", "sbsl", NULL};
+        filters[1] = mp_create_user_filter(subf, MP_OUTPUT_CHAIN_VIDEO,
+                                           "stereo3d", args);
+        // The window shows one view: the display size of one view.
+        char *format_args[] = {"stereo-in", "sbsl", NULL, NULL, NULL};
+        struct mp_stream_info *info = mp_filter_find_stream_info(f);
+        if (info && info->stereo_view) {
+            int dw, dh;
+            mp_image_params_get_dsize(&img->params, &dw, &dh);
+            if (img->params.stereo3d == MP_STEREO3D_SBSL ||
+                img->params.stereo3d == MP_STEREO3D_SBSR)
+                dw /= 2;
+            if (img->params.stereo3d == MP_STEREO3D_ABL ||
+                img->params.stereo3d == MP_STEREO3D_ABR)
+                dh /= 2;
+            format_args[2] = "dar";
+            format_args[3] = mp_tprintf(32, "%f", (double)dw / MPMAX(dh, 1));
+        }
+        filters[2] = mp_create_user_filter(subf, MP_OUTPUT_CHAIN_VIDEO,
+                                           "format", format_args);
+
+        if (filters[1] && filters[2]) {
+            mp_chain_filters(subf->ppins[0], subf->ppins[1], filters, 3);
+            p->sub.filter = subf;
+            MP_INFO(f, "Inserting stereo conversion filter.\n");
+        } else {
+            MP_ERR(f, "creating stereo conversion filter failed\n");
+            talloc_free(subf);
+        }
+    }
+
+    mp_subfilter_continue(&p->sub);
+}
+
+static void stereo_reset(struct mp_filter *f)
+{
+    struct stereo_priv *p = f->priv;
+
+    mp_subfilter_reset(&p->sub);
+}
+
+static void stereo_destroy(struct mp_filter *f)
+{
+    struct stereo_priv *p = f->priv;
+
+    mp_subfilter_reset(&p->sub);
+    TA_FREEP(&p->sub.filter);
+}
+
+static bool stereo_command(struct mp_filter *f, struct mp_filter_command *cmd)
+{
+    struct stereo_priv *p = f->priv;
+
+    if (cmd->type == MP_FILTER_COMMAND_IS_ACTIVE) {
+        cmd->is_active = !!p->sub.filter;
+        return true;
+    }
+    return false;
+}
+
+static const struct mp_filter_info stereo_filter = {
+    .name = "autostereo",
+    .priv_size = sizeof(struct stereo_priv),
+    .command = stereo_command,
+    .process = stereo_process,
+    .reset = stereo_reset,
+    .destroy = stereo_destroy,
+};
+
+struct mp_filter *mp_autostereo_create(struct mp_filter *parent)
+{
+    struct mp_filter *f = mp_filter_create(parent, &stereo_filter);
+    if (!f)
+        return NULL;
+
+    struct stereo_priv *p = f->priv;
+    p->prev_stereo3d = -1;
+    p->prev_imgfmt = 0;
+    p->opts = m_config_cache_alloc(f, f->global, &filter_conf);
+
+    p->sub.in = mp_filter_add_pin(f, MP_PIN_IN, "in");
+    p->sub.out = mp_filter_add_pin(f, MP_PIN_OUT, "out");
+
+    return f;
+}
+
 static void vflip_process(struct mp_filter *f)
 {
     struct vflip_priv *p = f->priv;

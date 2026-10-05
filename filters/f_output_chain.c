@@ -42,6 +42,7 @@ struct chain {
     struct mp_pin *filters_in, *filters_out;
 
     struct mp_user_filter *input, *output, *convert_wrapper;
+    struct mp_user_filter *stereo;
     struct mp_autoconvert *convert;
 
     // Enhancement-layer pair filter wrapper (tail of post_filters). NULL when
@@ -153,6 +154,14 @@ static void check_in_format_change(struct mp_user_filter *u,
     }
 }
 
+static void set_stereo_active(struct chain *p, bool active)
+{
+    if (!p->vo)
+        return;
+
+    vo_control(p->vo, VOCTRL_SET_STEREO_CONTENT, &active);
+}
+
 static void user_wrapper_process(struct mp_filter *f)
 {
     struct mp_user_filter *u = f->priv;
@@ -223,6 +232,8 @@ static void user_wrapper_process(struct mp_filter *f)
             u->last_is_active = cmd.is_active;
             MP_VERBOSE(p, "[%s] (%sabled)\n", u->name,
                        u->last_is_active ? "en" : "dis");
+            if (u == p->stereo)
+                set_stereo_active(p, u->last_is_active);
         }
     }
 }
@@ -362,6 +373,10 @@ void mp_output_chain_reset_harder(struct mp_output_chain *c)
 
 static void output_chain_destroy(struct mp_filter *f)
 {
+    struct chain *p = f->priv;
+
+    if (p->stereo && p->stereo->last_is_active)
+        set_stereo_active(p, false);
     output_chain_reset(f);
 }
 
@@ -396,6 +411,7 @@ void mp_output_chain_set_vo(struct mp_output_chain *c, struct vo *vo)
     p->stream_info.hwdec_devs = vo ? vo->hwdec_devs : NULL;
     p->stream_info.osd = vo ? vo->osd : NULL;
     p->stream_info.vflip = vo ? vo->driver->caps & VO_CAP_VFLIP : false;
+    p->stream_info.stereo_view = vo ? vo->driver->caps & VO_CAP_STEREO_VIEW : false;
     p->stream_info.rotate90 = vo ? vo->driver->caps & VO_CAP_ROTATE90 : false;
     p->stream_info.dr_vo = vo;
     p->vo = vo;
@@ -714,6 +730,15 @@ static void create_video_things(struct chain *p)
     f = create_wrapper_filter(p);
     f->name = "autovflip";
     f->f = mp_autovflip_create(f->wrapper);
+    if (!f->f)
+        abort();
+    MP_TARRAY_APPEND(p, p->post_filters, p->num_post_filters, f);
+
+    f = create_wrapper_filter(p);
+    f->name = "autostereo";
+    p->stereo = f;
+    f->last_is_active = false;
+    f->f = mp_autostereo_create(f->wrapper);
     if (!f->f)
         abort();
     MP_TARRAY_APPEND(p, p->post_filters, p->num_post_filters, f);

@@ -406,6 +406,7 @@ struct mp_stream_info {
     struct mp_hwdec_devices *hwdec_devs;
     struct osd_state *osd;
     bool vflip;
+    bool stereo_view;
     bool rotate90;
     bool force_swdec;
     struct vo *dr_vo; // for calling vo_get_image()

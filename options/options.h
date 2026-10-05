@@ -440,6 +440,7 @@ struct cuda_opts {
 };
 
 struct filter_opts {
+    bool video_stereo;
     int deinterlace;
     int field_parity;
 };
