@@ -38,4 +38,5 @@ struct gpu_ctx {
 
 struct gpu_ctx *gpu_ctx_create(struct vo *vo, struct ra_ctx_opts *ctx_opts);
 bool gpu_ctx_resize(struct gpu_ctx *ctx, int w, int h);
+bool gpu_ctx_resize_video(struct gpu_ctx *ctx, int w, int h);
 void gpu_ctx_destroy(struct gpu_ctx **ctxp);
