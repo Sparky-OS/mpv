@@ -102,6 +102,7 @@ struct priv {
     struct mp_osd_res screen_osd_res;
 
     bool destroy_buffers;
+    bool stereo_declared;
     bool force_window;
     enum hwdec_type hwdec_type;
 
@@ -638,6 +639,13 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
                                      image->h);
 
         }
+
+        // The declaration changes with the frame that needs it
+        bool stereo = frame->current->params.stereo3d == MP_STEREO3D_SBSL;
+        if (stereo != p->stereo_declared) {
+            vo_wayland_set_stereo_content(wl, stereo);
+            p->stereo_declared = stereo;
+        }
     }
 
     osd_buf = osd_buffer_get(vo);
@@ -758,7 +766,8 @@ static int control(struct vo *vo, uint32_t request, void *data)
 
     switch (request) {
     case VOCTRL_SET_STEREO_CONTENT:
-        return vo_wayland_set_stereo_content(vo->wl, *(bool *)data);
+        // The declaration follows the frames in draw_frame()
+        return true;
     case VOCTRL_RESET:
         p->destroy_buffers = true;
         return VO_TRUE;
