@@ -151,6 +151,7 @@ struct priv {
 };
 
 static const struct ra_swapchain_fns vulkan_swapchain;
+static const struct ra_swapchain_fns vulkan_video_swapchain;
 
 struct mpvk_ctx *ra_vk_ctx_get(struct ra_ctx *ctx)
 {
@@ -179,6 +180,7 @@ void ra_vk_ctx_uninit(struct ra_ctx *ctx)
 
     vk->gpu = NULL;
     pl_vulkan_destroy(&vk->vulkan);
+    TA_FREEP(&ctx->video_swapchain);
     TA_FREEP(&ctx->swapchain);
 }
 
@@ -492,6 +494,14 @@ bool ra_vk_ctx_init(struct ra_ctx *ctx, struct mpvk_ctx *vk,
         vk->video_swapchain = pl_vulkan_create_swapchain(vk->vulkan, &pl_params);
         if (!vk->video_swapchain)
             goto error;
+
+        struct ra_swapchain *video_sw = ctx->video_swapchain =
+            talloc_zero(NULL, struct ra_swapchain);
+        video_sw->ctx = ctx;
+        video_sw->fns = &vulkan_video_swapchain;
+        struct priv *video_p = video_sw->priv = talloc_zero(video_sw, struct priv);
+        video_p->vk = vk;
+        video_p->params = params;
     }
 
     return true;
@@ -510,6 +520,12 @@ bool ra_vk_ctx_resize(struct ra_ctx *ctx, int width, int height)
     ctx->vo->dheight = height;
 
     return ok;
+}
+
+bool ra_vk_ctx_resize_video(struct ra_ctx *ctx, int width, int height)
+{
+    struct priv *p = ctx->swapchain->priv;
+    return pl_swapchain_resize(p->vk->video_swapchain, &width, &height);
 }
 
 char *ra_vk_ctx_get_device_name(struct ra_ctx *ctx)
@@ -642,4 +658,46 @@ static const struct ra_swapchain_fns vulkan_swapchain = {
     .submit_frame  = submit_frame,
     .swap_buffers  = swap_buffers,
     .get_vsync     = get_vsync,
+};
+
+static bool start_video_frame(struct ra_swapchain *sw, struct ra_fbo *out_fbo)
+{
+    struct priv *p = sw->priv;
+    struct pl_swapchain_frame frame;
+
+    // If out_fbo is NULL, this was called from vo_gpu_next. Bail out.
+    if (out_fbo == NULL)
+        return true;
+
+    if (!pl_swapchain_start_frame(p->vk->video_swapchain, &frame))
+        return false;
+    if (!mppl_wrap_tex(sw->ctx->ra, frame.fbo, &p->proxy_tex))
+        return false;
+
+    *out_fbo = (struct ra_fbo) {
+        .tex = &p->proxy_tex,
+        .flip = frame.flipped,
+    };
+
+    return true;
+}
+
+static bool submit_video_frame(struct ra_swapchain *sw,
+                               const struct vo_frame *frame)
+{
+    struct priv *p = sw->priv;
+    return pl_swapchain_submit_frame(p->vk->video_swapchain);
+}
+
+static void swap_video_buffers(struct ra_swapchain *sw)
+{
+    struct priv *p = sw->priv;
+    pl_swapchain_swap_buffers(p->vk->video_swapchain);
+}
+
+static const struct ra_swapchain_fns vulkan_video_swapchain = {
+    .color_depth   = color_depth,
+    .start_frame   = start_video_frame,
+    .submit_frame  = submit_video_frame,
+    .swap_buffers  = swap_video_buffers,
 };

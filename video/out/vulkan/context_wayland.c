@@ -197,6 +197,7 @@ const struct ra_ctx_fns ra_ctx_vulkan_wayland = {
     .wakeup             = wayland_vk_wakeup,
     .wait_events        = wayland_vk_wait_events,
     .update_render_opts = wayland_vk_update_render_opts,
+    .resize_video       = ra_vk_ctx_resize_video,
     .init               = wayland_vk_init,
     .uninit             = wayland_vk_uninit,
 };
