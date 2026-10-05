@@ -53,6 +53,9 @@
 #include "input/event.h"
 #include "video/image_loader.h"
 #include "video/mp_image.h"
+#if HAVE_STEREO_DECLARE
+#include "stereo-declare.h"
+#endif
 #include "present_sync.h"
 #include "x11_common.h"
 #include "mpv_talloc.h"
@@ -2107,6 +2110,20 @@ int vo_x11_control(struct vo *vo, int *events, int request, void *arg)
     struct vo_x11_state *x11 = vo->x11;
     struct mp_vo_opts *opts = x11->opts;
     switch (request) {
+#if HAVE_STEREO_DECLARE
+    case VOCTRL_SET_STEREO_CONTENT: {
+        bool active = *(bool *)arg;
+        int ret = active ?
+            stereo_declare_x11(vo->x11->display, vo->x11->window,
+                               STEREO_SBS_FULL, STEREO_CLASS_VIDEO,
+                               STEREO_VIDEO_CURRENT) :
+            stereo_remove_x11(vo->x11->display, vo->x11->window);
+        if (ret < 0)
+            MP_WARN(vo, "Updating the stereo declaration failed: %s\n",
+                    mp_strerror(-ret));
+        return VO_TRUE;
+    }
+#endif
     case VOCTRL_CHECK_EVENTS:
         vo_x11_check_events(vo);
         *events |= x11->pending_vo_events;

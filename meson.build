@@ -374,6 +374,12 @@ if features['subrandr']
     dependencies += subrandr
 endif
 
+stereo_declare = dependency('stereo-declare', required: get_option('stereo-declare'))
+features += {'stereo-declare': stereo_declare.found()}
+if features['stereo-declare']
+    dependencies += stereo_declare
+endif
+
 # C11 atomics are mandatory but linking to the library is not always required.
 dependencies += cc.find_library('atomic', required: false)
 

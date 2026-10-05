@@ -34,6 +34,9 @@
 #include "sub/draw_bmp.h"
 #include "video/fmt-conversion.h"
 #include "video/mp_image.h"
+#if HAVE_STEREO_DECLARE
+#include "stereo-declare.h"
+#endif
 #include "vo.h"
 #include "wayland_common.h"
 #include "wldmabuf/ra_wldmabuf.h"
@@ -108,7 +111,30 @@ struct priv {
     struct mp_image_params target_params;
     uint32_t drm_format;
     uint64_t drm_modifier;
+
+    bool stereo_declare_initialized;
 };
+
+#if HAVE_STEREO_DECLARE
+static void set_stereo_content(struct vo *vo, bool active)
+{
+    struct priv *p = vo->priv;
+
+    if (!p->stereo_declare_initialized)
+        return;
+
+    int ret = active ?
+        stereo_declare_wayland(vo->wl->video_surface, STEREO_SBS_FULL,
+                               STEREO_CLASS_VIDEO, STEREO_VIDEO_CURRENT) :
+        stereo_remove_wayland(vo->wl->video_surface);
+    if (ret < 0) {
+        MP_WARN(vo, "Updating the stereo declaration failed: %s\n",
+                mp_strerror(-ret));
+    } else {
+        wl_surface_commit(vo->wl->video_surface);
+    }
+}
+#endif
 
 static void buffer_handle_release(void *data, struct wl_buffer *wl_buffer)
 {
@@ -757,6 +783,11 @@ static int control(struct vo *vo, uint32_t request, void *data)
     int ret;
 
     switch (request) {
+#if HAVE_STEREO_DECLARE
+    case VOCTRL_SET_STEREO_CONTENT:
+        set_stereo_content(vo, *(bool *)data);
+        return VO_TRUE;
+#endif
     case VOCTRL_RESET:
         p->destroy_buffers = true;
         return VO_TRUE;
@@ -781,6 +812,13 @@ static void uninit(struct vo *vo)
 
     destroy_buffers(vo);
     destroy_osd_buffers(vo);
+#if HAVE_STEREO_DECLARE
+    if (p->stereo_declare_initialized) {
+        stereo_remove_wayland(vo->wl->video_surface);
+        wl_surface_commit(vo->wl->video_surface);
+        stereo_declare_wayland_finish();
+    }
+#endif
     if (p->osd_shm_pool)
         wl_shm_pool_destroy(p->osd_shm_pool);
     if (p->solid_buffer_pool)
@@ -810,6 +848,11 @@ static int preinit(struct vo *vo)
         goto err;
 
     mp_assert(p->ctx->ra);
+
+#if HAVE_STEREO_DECLARE
+    if (stereo_declare_wayland_init(vo->wl->display, NULL) == 0)
+        p->stereo_declare_initialized = true;
+#endif
 
     if (!vo->wl->dmabuf || !vo->wl->dmabuf_feedback) {
         MP_FATAL(vo->wl, "Compositor doesn't support the %s (ver. 4) protocol!\n",
@@ -876,6 +919,7 @@ const struct vo_driver video_out_dmabuf_wayland = {
     .caps = VO_CAP_ROTATE90 |
             VO_CAP_FRAMEOWNER |
             VO_CAP_VFLIP |
+            VO_CAP_STEREO_VIEW |
             0x0,
     .preinit = preinit,
     .query_format = query_format,

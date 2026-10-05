@@ -32,6 +32,7 @@ option('pthread-debug', type: 'feature', value: 'disabled', description: 'pthrea
 option('rubberband', type: 'feature', value: 'auto', description: 'librubberband support')
 option('sdl2-gamepad', type: 'feature', value: 'disabled', description: 'SDL2 gamepad input')
 option('subrandr', type: 'feature', value: 'auto', description: 'subrandr support (SRV3 and WebVTT subtitle renderer)')
+option('stereo-declare', type: 'feature', value: 'auto', description: 'KWin stereo declaration')
 option('uchardet', type: 'feature', value: 'auto', description: 'uchardet support')
 option('uwp', type: 'feature', value: 'disabled', description: 'Universal Windows Platform')
 option('vapoursynth', type: 'feature', value: 'auto', description: 'VapourSynth filter bridge')
