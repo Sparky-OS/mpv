@@ -1852,7 +1852,14 @@ Video
     Matroska StereoMode, MP4 stereo metadata) to full side by side, left eye
     first, and declare the video surface as stereo content to the compositor
     when the output supports it (default: yes). Whatever the packing and eye
-    order of the stream, the result is the same. Subtitles and the OSD are
+    order of the stream, the result is the same. The stream does not say
+    whether its views are half or full size, so the shape of the frame
+    decides (using the sample aspect ratio): a side by side frame at least 2.5
+    times as wide as high, or a top and bottom frame at most 1.2 times as wide
+    as high, holds full size views, and any other frame holds half size views
+    that are stretched to the full size. To force a packing, use
+    ``--vf=format:stereo-in=<mode>`` (``sbsl`` and ``abl`` are the full size
+    modes; ``--vf=format:stereo-in=help`` lists them). Subtitles and the OSD are
     drawn once per eye, at one eye's size. Videos that do not signal 3D are
     not touched.
 

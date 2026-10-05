@@ -383,6 +383,25 @@ static const char *stereo_input_name(int mode)
     }
 }
 
+// The stream's signalling gives the arrangement, not whether the views are
+// half or full. Tell them apart by the shape: a frame wider than any normal
+// picture holds two full views side by side, a frame taller than one holds
+// two full views on top of each other.
+static int stereo_packing(const struct mp_image_params *p)
+{
+    int dw, dh;
+    mp_image_params_get_dsize(p, &dw, &dh);
+    double aspect = (double)dw / MPMAX(dh, 1);
+
+    switch (p->stereo3d) {
+    case MP_STEREO3D_SBS2L: return aspect >= 2.5 ? MP_STEREO3D_SBSL : p->stereo3d;
+    case MP_STEREO3D_SBS2R: return aspect >= 2.5 ? MP_STEREO3D_SBSR : p->stereo3d;
+    case MP_STEREO3D_AB2L:  return aspect <= 1.2 ? MP_STEREO3D_ABL : p->stereo3d;
+    case MP_STEREO3D_AB2R:  return aspect <= 1.2 ? MP_STEREO3D_ABR : p->stereo3d;
+    default: return p->stereo3d;
+    }
+}
+
 static void stereo_process(struct mp_filter *f)
 {
     struct stereo_priv *p = f->priv;
@@ -406,15 +425,16 @@ static void stereo_process(struct mp_filter *f)
     struct mp_image *img = frame.data;
 
     m_config_cache_update(p->opts);
-    const char *input = stereo_input_name(img->params.stereo3d);
+    int packing = stereo_packing(&img->params);
+    const char *input = stereo_input_name(packing);
     struct filter_opts *opts = p->opts->opts;
     bool wanted = opts->video_stereo && input;
 
-    if (img->imgfmt != p->prev_imgfmt || img->params.stereo3d != p->prev_stereo3d ||
+    if (img->imgfmt != p->prev_imgfmt || packing != p->prev_stereo3d ||
         (p->sub.filter && !wanted))
     {
         p->prev_imgfmt = img->imgfmt;
-        p->prev_stereo3d = img->params.stereo3d;
+        p->prev_stereo3d = packing;
         if (!mp_subfilter_drain_destroy(&p->sub))
             return;
     }
@@ -451,11 +471,9 @@ static void stereo_process(struct mp_filter *f)
         if (info && info->stereo_view) {
             int dw, dh;
             mp_image_params_get_dsize(&img->params, &dw, &dh);
-            if (img->params.stereo3d == MP_STEREO3D_SBSL ||
-                img->params.stereo3d == MP_STEREO3D_SBSR)
+            if (packing == MP_STEREO3D_SBSL || packing == MP_STEREO3D_SBSR)
                 dw /= 2;
-            if (img->params.stereo3d == MP_STEREO3D_ABL ||
-                img->params.stereo3d == MP_STEREO3D_ABR)
+            if (packing == MP_STEREO3D_ABL || packing == MP_STEREO3D_ABR)
                 dh /= 2;
             format_args[2] = "dar";
             format_args[3] = mp_tprintf(32, "%f", (double)dw / MPMAX(dh, 1));
