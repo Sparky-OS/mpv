@@ -106,15 +106,21 @@ enum gles_mode ra_gl_ctx_get_glesmode(struct ra_ctx *ctx)
     return mode;
 }
 
-void ra_gl_ctx_uninit(struct ra_ctx *ctx)
+static void swapchain_uninit(struct ra_ctx *ctx, struct ra_swapchain **swapchain)
 {
-    if (ctx->swapchain) {
-        struct priv *p = ctx->swapchain->priv;
+    if (*swapchain) {
+        struct priv *p = (*swapchain)->priv;
         if (ctx->ra && p->wrapped_fb)
             ra_tex_free(ctx->ra, &p->wrapped_fb);
-        talloc_free(ctx->swapchain);
-        ctx->swapchain = NULL;
+        talloc_free(*swapchain);
+        *swapchain = NULL;
     }
+}
+
+void ra_gl_ctx_uninit(struct ra_ctx *ctx)
+{
+    swapchain_uninit(ctx, &ctx->video_swapchain);
+    swapchain_uninit(ctx, &ctx->swapchain);
 
     // Clean up any potentially left-over debug callback
     if (ctx->ra)
@@ -125,9 +131,10 @@ void ra_gl_ctx_uninit(struct ra_ctx *ctx)
 
 static const struct ra_swapchain_fns ra_gl_swapchain_fns;
 
-bool ra_gl_ctx_init(struct ra_ctx *ctx, GL *gl, struct ra_ctx_params params)
+static struct ra_swapchain *swapchain_create(struct ra_ctx *ctx, GL *gl,
+                                             struct ra_ctx_params params)
 {
-    struct ra_swapchain *sw = ctx->swapchain = talloc_ptrtype(NULL, sw);
+    struct ra_swapchain *sw = talloc_ptrtype(NULL, sw);
     *sw = (struct ra_swapchain) {
         .ctx = ctx,
     };
@@ -142,6 +149,13 @@ bool ra_gl_ctx_init(struct ra_ctx *ctx, GL *gl, struct ra_ctx_params params)
     };
 
     sw->fns = &p->fns;
+    return sw;
+}
+
+bool ra_gl_ctx_init(struct ra_ctx *ctx, GL *gl, struct ra_ctx_params params)
+{
+    struct ra_swapchain *sw = ctx->swapchain = swapchain_create(ctx, gl, params);
+    struct priv *p = sw->priv;
 
     if (!gl->version && !gl->es)
         return false;
@@ -162,6 +176,11 @@ bool ra_gl_ctx_init(struct ra_ctx *ctx, GL *gl, struct ra_ctx_params params)
 
     ctx->ra = ra_create_gl(p->gl, ctx->log);
     return !!ctx->ra;
+}
+
+void ra_gl_ctx_init_video(struct ra_ctx *ctx, GL *gl, struct ra_ctx_params params)
+{
+    ctx->video_swapchain = swapchain_create(ctx, gl, params);
 }
 
 void ra_gl_ctx_resize(struct ra_swapchain *sw, int w, int h, int fbo)
@@ -185,6 +204,9 @@ int ra_gl_ctx_color_depth(struct ra_swapchain *sw)
 
     if (!p->wrapped_fb)
         return 0;
+
+    if (p->params.make_current)
+        p->params.make_current(sw->ctx);
 
     if ((gl->es < 300 && !gl->version) || !(gl->mpgl_caps & MPGL_CAP_FB))
         return 0;
@@ -212,6 +234,9 @@ bool ra_gl_ctx_start_frame(struct ra_swapchain *sw, struct ra_fbo *out_fbo)
     bool visible = true;
     if (p->params.check_visible)
         visible = p->params.check_visible(sw->ctx);
+
+    if (visible && p->params.make_current)
+        p->params.make_current(sw->ctx);
 
     // If out_fbo is NULL, this was called from vo_gpu_next. Bail out.
     if (!out_fbo || !visible)
