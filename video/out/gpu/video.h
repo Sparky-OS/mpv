@@ -194,10 +194,10 @@ enum {
     // Only the OSD and subtitles, over a transparent target, once each for the
     // window's surface above the video layer
     RENDER_FRAME_CONTROLS = 1 << 4,
-    // One of several views of the same frame, each drawn at its own place of the
-    // target: no interpolation and no cached output, and for the later views the
-    // target is left as it is
+    // One of the views of the same frame, each drawn at its own place of the
+    // target: no cached output, which depends on the place
     RENDER_FRAME_VIEW = 1 << 5,
+    // Leave the target as it is, for the views drawn after the first
     RENDER_FRAME_KEEP = 1 << 6,
     RENDER_FRAME_DEF = RENDER_FRAME_SUBS | RENDER_FRAME_OSD | RENDER_SCREEN_COLOR,
 };
@@ -213,6 +213,7 @@ bool gl_video_check_format(struct gl_video *p, int mp_format);
 void gl_video_config(struct gl_video *p, struct mp_image_params *params);
 void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame,
                            const struct ra_fbo *fbo, int flags);
+void gl_video_set_view(struct gl_video *p, int view);
 void gl_video_resize(struct gl_video *p,
                      struct mp_rect *src, struct mp_rect *dst,
                      struct mp_osd_res *osd);

@@ -124,10 +124,12 @@ static bool draw_frame_layers(struct vo *vo, struct vo_frame *frame)
             src.x1 = src.x0 + half;
             dst.x0 += view * vo->dwidth;
             dst.x1 += view * vo->dwidth;
+            gl_video_set_view(p->renderer, view);
             gl_video_resize(p->renderer, &src, &dst, &p->osd);
             gl_video_render_frame(p->renderer, frame, &video_fbo, RENDER_SCREEN_COLOR |
                                   RENDER_FRAME_VIEW | (view ? RENDER_FRAME_KEEP : 0));
         }
+        gl_video_set_view(p->renderer, 0);
     }
 
     sw->fns->start_frame(sw, NULL); // for contexts with a surface each

@@ -124,6 +124,17 @@ struct surface {
 
 #define SURFACES_MAX 10
 
+// What a view of a stereo video needs to interpolate on its own: the video
+// layer holds both views, and each is drawn from its own history of frames.
+struct view_state {
+    struct mp_rect src_rect;
+    struct mp_rect dst_rect;
+    struct surface surfaces[SURFACES_MAX];
+    int surface_idx;
+    int surface_now;
+    int frames_drawn;
+};
+
 struct cached_file {
     char *path;
     struct bstr body;
@@ -231,6 +242,10 @@ struct gl_video {
     struct mp_rect src_rect;    // displayed part of the source video
     struct mp_rect dst_rect;    // video rectangle on output window
     struct mp_osd_res osd_rect; // OSD size/margins
+
+    // The fields above are those of the view in use; the other view's are here
+    int view;
+    struct view_state other_view;
 
     // temporary during rendering
     struct compute_info pass_compute; // compute shader metadata for this pass
@@ -616,11 +631,30 @@ static void gl_video_reset_surfaces(struct gl_video *p)
     for (int i = 0; i < SURFACES_MAX; i++) {
         p->surfaces[i].id = 0;
         p->surfaces[i].pts = MP_NOPTS_VALUE;
+        p->other_view.surfaces[i].id = 0;
+        p->other_view.surfaces[i].pts = MP_NOPTS_VALUE;
     }
-    p->surface_idx = 0;
-    p->surface_now = 0;
-    p->frames_drawn = 0;
+    p->surface_idx = p->other_view.surface_idx = 0;
+    p->surface_now = p->other_view.surface_now = 0;
+    p->frames_drawn = p->other_view.frames_drawn = 0;
     p->output_tex_valid = false;
+}
+
+// Use the rectangles and the interpolation history of a view (0 or 1). A
+// mono video only has view 0.
+void gl_video_set_view(struct gl_video *p, int view)
+{
+    if (view == p->view)
+        return;
+    struct view_state *o = &p->other_view;
+    MPSWAP(struct mp_rect, p->src_rect, o->src_rect);
+    MPSWAP(struct mp_rect, p->dst_rect, o->dst_rect);
+    for (int i = 0; i < SURFACES_MAX; i++)
+        MPSWAP(struct surface, p->surfaces[i], o->surfaces[i]);
+    MPSWAP(int, p->surface_idx, o->surface_idx);
+    MPSWAP(int, p->surface_now, o->surface_now);
+    MPSWAP(int, p->frames_drawn, o->frames_drawn);
+    p->view = view;
 }
 
 static void gl_video_reset_hooks(struct gl_video *p)
@@ -671,8 +705,10 @@ static void uninit_rendering(struct gl_video *p)
     for (int n = 0; n < 2; n++)
         ra_tex_free(p->ra, &p->error_diffusion_tex[n]);
 
-    for (int n = 0; n < SURFACES_MAX; n++)
+    for (int n = 0; n < SURFACES_MAX; n++) {
         ra_tex_free(p->ra, &p->surfaces[n].tex);
+        ra_tex_free(p->ra, &p->other_view.surfaces[n].tex);
+    }
 
     for (int n = 0; n < p->num_hook_textures; n++)
         ra_tex_free(p->ra, &p->hook_textures[n]);
@@ -3583,8 +3619,7 @@ void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame,
 
     if (has_frame) {
         bool interpolate = p->opts.interpolation && frame->display_synced &&
-                           (p->frames_drawn || !frame->still) &&
-                           !(flags & RENDER_FRAME_VIEW);
+                           (p->frames_drawn || !frame->still);
         if (interpolate) {
             double ratio = frame->ideal_frame_duration / frame->vsync_interval;
             if (fabs(ratio - 1.0) < p->opts.interpolation_threshold)
