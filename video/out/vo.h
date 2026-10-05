@@ -519,6 +519,10 @@ struct vo {
     int dheight;
     float monitor_par;
 
+    // the video is declared as full side by side stereo content, so the window
+    // size is that of one view
+    bool stereo_content;
+
     // current GPU context (--vo=gpu and --vo=gpu-next only)
     const char *context_name;
 

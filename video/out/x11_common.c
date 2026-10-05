@@ -2113,6 +2113,7 @@ int vo_x11_control(struct vo *vo, int *events, int request, void *arg)
 #if HAVE_STEREO_DECLARE
     case VOCTRL_SET_STEREO_CONTENT: {
         bool active = *(bool *)arg;
+        vo->stereo_content = active;
         int ret = active ?
             stereo_declare_x11(vo->x11->display, vo->x11->window,
                                STEREO_SBS_FULL, STEREO_CLASS_VIDEO,
