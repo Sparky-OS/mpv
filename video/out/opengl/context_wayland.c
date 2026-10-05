@@ -34,6 +34,7 @@ struct priv {
     EGLContext egl_context;
     EGLSurface egl_surface;
     EGLConfig  egl_config;
+    EGLConfig  window_config; // the window's surface, if not egl_config
     struct wl_egl_window *egl_window;
     // The video layer under the window's surface, if there is one
     EGLSurface video_surface;
@@ -131,6 +132,26 @@ static void wayland_egl_get_vsync(struct ra_ctx *ctx, struct vo_vsync_info *info
         present_sync_get_info(wl->present, info);
 }
 
+// The window's surface holds the controls over the video layer, with alpha.
+// The context has no config then, so that the video layer keeps its own.
+static bool choose_alpha_config(struct ra_ctx *ctx, EGLConfig *config)
+{
+    struct priv *p = ctx->priv;
+    const char *exts = eglQueryString(p->egl_display, EGL_EXTENSIONS);
+    EGLint num_configs = 0;
+    EGLint attributes[] = {
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+        EGL_RED_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_BLUE_SIZE, 8,
+        EGL_ALPHA_SIZE, 8,
+        EGL_NONE
+    };
+    return gl_check_extension(exts, "EGL_KHR_no_config_context") &&
+           eglChooseConfig(p->egl_display, attributes, config, 1, &num_configs) &&
+           num_configs;
+}
+
 static bool egl_create_context(struct ra_ctx *ctx)
 {
     struct priv *p = ctx->priv;
@@ -144,9 +165,19 @@ static bool egl_create_context(struct ra_ctx *ctx)
     if (eglInitialize(p->egl_display, NULL, NULL) != EGL_TRUE)
         return false;
 
-    if (!mpegl_create_context(ctx, p->egl_display, &p->egl_context,
-                              &p->egl_config))
+    struct mpegl_cb cb = {0};
+    if (ctx->opts.video_layer && vo_wayland_enable_video_layer(wl)) {
+        if (choose_alpha_config(ctx, &p->window_config))
+            cb.no_config = true;
+        else
+            ctx->opts.want_alpha = true;
+    }
+
+    if (!mpegl_create_context_cb(ctx, p->egl_display, cb, &p->egl_context,
+                                 &p->egl_config))
         return false;
+    if (!cb.no_config)
+        p->window_config = p->egl_config;
 
     eglMakeCurrent(p->egl_display, NULL, NULL, p->egl_context);
 
@@ -187,10 +218,10 @@ static void egl_create_window(struct ra_ctx *ctx)
                                          mp_rect_h(wl->geometry));
 
     p->egl_surface = mpegl_create_window_surface(
-        p->egl_display, p->egl_config, p->egl_window);
+        p->egl_display, p->window_config, p->egl_window);
     if (p->egl_surface == EGL_NO_SURFACE) {
         p->egl_surface = eglCreateWindowSurface(
-            p->egl_display, p->egl_config, p->egl_window, NULL);
+            p->egl_display, p->window_config, p->egl_window, NULL);
     }
 
     eglMakeCurrent(p->egl_display, p->egl_surface, p->egl_surface, p->egl_context);
@@ -292,14 +323,8 @@ static void wayland_egl_update_render_opts(struct ra_ctx *ctx)
 static bool wayland_egl_init(struct ra_ctx *ctx)
 {
     ctx->priv = talloc_zero(ctx, struct priv);
-    if (!vo_wayland_init(ctx->vo))
-        goto error;
-    // The window's surface then holds the controls, with alpha
-    if (ctx->opts.video_layer && vo_wayland_enable_video_layer(ctx->vo->wl))
-        ctx->opts.want_alpha = true;
-    if (egl_create_context(ctx))
+    if (vo_wayland_init(ctx->vo) && egl_create_context(ctx))
         return true;
-error:
     wayland_egl_uninit(ctx);
     return false;
 }
