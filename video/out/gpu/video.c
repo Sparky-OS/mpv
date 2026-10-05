@@ -3133,7 +3133,8 @@ static void pass_draw_osd(struct gl_video *p, int osd_flags, int frame_flags,
     if ((osd_flags & OSD_DRAW_SUB_ONLY) && (osd_flags & OSD_DRAW_OSD_ONLY))
         return;
 
-    mpgl_osd_generate(p->osd, rect, pts, p->image_params.stereo3d, osd_flags);
+    int stereo3d = frame_flags & RENDER_FRAME_CONTROLS ? 0 : p->image_params.stereo3d;
+    mpgl_osd_generate(p->osd, rect, pts, stereo3d, osd_flags);
 
     timer_pool_start(p->osd_timer);
     for (int n = 0; n < MAX_OSD_PARTS; n++) {
@@ -3550,16 +3551,19 @@ void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame,
 
     p->broken_frame = false;
 
-    bool has_frame = !!frame->current;
+    bool controls = flags & RENDER_FRAME_CONTROLS;
+    bool has_frame = !!frame->current && !controls;
 
     struct m_color c = p->clear_color;
+    if (controls)
+        c = (struct m_color){0};
     float clear_color[4] = {c.r / 255.0, c.g / 255.0, c.b / 255.0, c.a / 255.0};
     clear_color[0] *= clear_color[3];
     clear_color[1] *= clear_color[3];
     clear_color[2] *= clear_color[3];
     p->ra->fns->clear(p->ra, fbo->tex, clear_color, &target_rc);
 
-    if (p->hwdec_overlay) {
+    if (p->hwdec_overlay && !controls) {
         if (has_frame) {
             float *color = p->hwdec_overlay->overlay_colorkey;
             p->ra->fns->clear(p->ra, fbo->tex, color, &p->dst_rect);
@@ -3651,10 +3655,10 @@ done:
         // If we haven't actually drawn anything so far, then we technically
         // need to consider this the start of a new pass. Let's call it a
         // redraw just because, since it's basically a blank frame anyway
-        if (!has_frame)
+        if (!has_frame && !controls)
             pass_info_reset(p, true);
 
-        int osd_flags = p->opts.blend_subs ? OSD_DRAW_OSD_ONLY : 0;
+        int osd_flags = p->opts.blend_subs && !controls ? OSD_DRAW_OSD_ONLY : 0;
         if (!(flags & RENDER_FRAME_SUBS))
             osd_flags |= OSD_DRAW_OSD_ONLY;
         if (!(flags & RENDER_FRAME_OSD))
@@ -3672,7 +3676,8 @@ done:
         p->ra->fns->clear(p->ra, fbo->tex, color, &target_rc);
     }
 
-    p->frames_rendered++;
+    if (!controls)
+        p->frames_rendered++;
     pass_report_performance(p);
 }
 
