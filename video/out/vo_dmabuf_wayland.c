@@ -805,6 +805,7 @@ static int preinit(struct vo *vo)
 
     p->log = vo->log;
     p->global = vo->global;
+    vo->stereo_view = true;
     p->ctx = ra_ctx_create_by_name(vo, "wldmabuf");
     wl_list_init(&p->buffer_list);
     wl_list_init(&p->osd_buffer_list);
@@ -878,7 +879,6 @@ const struct vo_driver video_out_dmabuf_wayland = {
     .caps = VO_CAP_ROTATE90 |
             VO_CAP_FRAMEOWNER |
             VO_CAP_VFLIP |
-            VO_CAP_STEREO_VIEW |
             0x0,
     .preinit = preinit,
     .query_format = query_format,

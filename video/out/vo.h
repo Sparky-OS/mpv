@@ -206,9 +206,6 @@ enum {
     VO_CAP_FRAMEOWNER   = 1 << 5,
     // VO does handle mp_image_params.vflip
     VO_CAP_VFLIP        = 1 << 6,
-    // VO declares its video surface as stereo content, so the window shows
-    // one view.
-    VO_CAP_STEREO_VIEW  = 1 << 7,
 };
 
 enum {
@@ -486,6 +483,10 @@ struct vo {
     // --- The following fields are generally only changed during initialization.
 
     bool probing;
+
+    // The VO declares its video surface as stereo content, so the window shows
+    // one view.
+    bool stereo_view;
 
     // --- The following fields are only changed with vo_reconfig(), and can
     //     be accessed unsynchronized (read-only).
