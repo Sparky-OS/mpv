@@ -1696,13 +1696,7 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
                     frame->current && !layered ? frame->current->params.stereo3d : 0,
                     get_ref_luma(p));
     stats_time_end(p->stats, "osd-update");
-    // Each eye gets the picture at the window's size
-    struct mp_rect dst = p->dst;
-    if (stereo) {
-        dst.x0 *= 2;
-        dst.x1 *= 2;
-    }
-    apply_crop(&target, dst, swframe.fbo->params.w, swframe.fbo->params.h);
+    apply_crop(&target, p->dst, swframe.fbo->params.w, swframe.fbo->params.h);
     update_tm_viz(&pars->color_map_params, &target);
 
     struct pl_frame_mix mix = {0};
@@ -1805,7 +1799,30 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
     if (layered)
         vsw->fns->start_frame(vsw, NULL); // for contexts with a surface each
     stats_time_start(p->stats, "render");
-    bool render_ok = pl_render_image_mix(p->rr, &mix, &target, &params);
+    bool render_ok = true;
+    // Each eye gets its view at the window's size, centred in its half of the
+    // video layer, as for a window that shows one view.
+    for (int view = 0; view < (stereo ? 2 : 1) && render_ok; view++) {
+        struct pl_render_params view_params = params;
+        if (stereo) {
+            struct mp_rect src = p->src, dst = p->dst;
+            int half = (src.x1 - src.x0) / 2;
+            src.x0 += view * half;
+            src.x1 = src.x0 + half;
+            dst.x0 += view * ctlframe.fbo->params.w;
+            dst.x1 += view * ctlframe.fbo->params.w;
+            for (int i = 0; i < mix.num_frames; i++) {
+                apply_crop((struct pl_frame *) mix.frames[i], src,
+                           vo->params->w, vo->params->h);
+                // The cached frames depend on the crop
+                ((uint64_t *) mix.signatures)[i] ^= (uint64_t) view << 47;
+            }
+            apply_crop(&target, dst, swframe.fbo->params.w, swframe.fbo->params.h);
+            if (view)
+                view_params.border = PL_CLEAR_SKIP;
+        }
+        render_ok = pl_render_image_mix(p->rr, &mix, &target, &view_params);
+    }
     stats_time_end(p->stats, "render");
     if (!render_ok) {
         MP_ERR(vo, "Failed rendering frame!\n");
