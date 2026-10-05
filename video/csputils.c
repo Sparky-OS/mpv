@@ -152,6 +152,10 @@ const struct m_opt_choice_alternatives mp_stereo3d_names[] = {
     {"agmc",   12}, // "anaglyph_green_magenta" (Matroska: unclear which mode)
     {"al",     13}, // "alternating frames left first"
     {"ar",     14}, // "alternating frames right first"
+    {"sbsl",   15}, // full "side_by_side_left"
+    {"sbsr",   16}, // full "side_by_side_right"
+    {"abl",    17}, // full "top_bottom_left"
+    {"abr",    18}, // full "top_bottom_right"
     {0}
 };
 
@@ -183,9 +187,13 @@ void mp_get_3d_side_by_side(int stereo_mode, int div[2])
     div[0] = div[1] = 1;
     switch (stereo_mode) {
     case MP_STEREO3D_SBS2L:
-    case MP_STEREO3D_SBS2R: div[0] = 2; break;
+    case MP_STEREO3D_SBS2R:
+    case MP_STEREO3D_SBSL:
+    case MP_STEREO3D_SBSR: div[0] = 2; break;
     case MP_STEREO3D_AB2R:
-    case MP_STEREO3D_AB2L:  div[1] = 2; break;
+    case MP_STEREO3D_AB2L:
+    case MP_STEREO3D_ABL:
+    case MP_STEREO3D_ABR: div[1] = 2; break;
     }
 }
 

@@ -64,7 +64,11 @@ enum mp_stereo3d_mode {
     MP_STEREO3D_AGMC = 12,
     MP_STEREO3D_AL = 13,
     MP_STEREO3D_AR = 14,
-    MP_STEREO3D_COUNT = 15, // 14 is last valid mode
+    MP_STEREO3D_SBSL = 15,
+    MP_STEREO3D_SBSR = 16,
+    MP_STEREO3D_ABL = 17,
+    MP_STEREO3D_ABR = 18,
+    MP_STEREO3D_COUNT = 19, // 18 is last valid mode
 };
 
 extern const struct m_opt_choice_alternatives mp_stereo3d_names[];
