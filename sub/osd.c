@@ -461,6 +461,17 @@ void osd_draw_on_image_p(struct osd_state *osd, struct mp_osd_res res,
                          double video_pts, int draw_flags,
                          struct mp_image_pool *pool, struct mp_image *dest)
 {
+    bool doubled_sbs = dest->params.stereo3d == MP_STEREO3D_SBSL;
+    int eye_w = 0;
+
+    if (doubled_sbs) {
+        eye_w = MP_ALIGN_DOWN(dest->w / 2, dest->fmt.align_x);
+        if (eye_w > 0)
+            res.w = MPMIN(res.w, eye_w);
+        else
+            doubled_sbs = false;
+    }
+
     struct sub_bitmap_list *list =
         osd_render(osd, res, video_pts, draw_flags, mp_draw_sub_formats);
 
@@ -480,8 +491,18 @@ void osd_draw_on_image_p(struct osd_state *osd, struct mp_osd_res res,
 
     stats_time_start(osd->stats, "draw-bmp");
 
-    if (!mp_draw_sub_bitmaps(osd->draw_cache, dest, list))
-        MP_WARN(osd, "Failed rendering OSD.\n");
+    if (doubled_sbs) {
+        for (int x = 0; x < 2; x++) {
+            struct mp_image eye = *dest;
+            mp_image_crop(&eye, x * eye_w, 0, (x + 1) * eye_w, dest->h);
+
+            if (!mp_draw_sub_bitmaps(osd->draw_cache, &eye, list))
+                MP_WARN(osd, "Failed rendering OSD.\n");
+        }
+    } else {
+        if (!mp_draw_sub_bitmaps(osd->draw_cache, dest, list))
+            MP_WARN(osd, "Failed rendering OSD.\n");
+    }
     talloc_steal(osd, osd->draw_cache);
 
     stats_time_end(osd->stats, "draw-bmp");

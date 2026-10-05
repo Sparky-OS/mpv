@@ -355,6 +355,7 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
         mp_image_clear(img, 0, 0, img->w, img->h);
     }
 
+    img->params.stereo3d = frame->current ? frame->current->params.stereo3d : 0;
     osd_draw_on_image(vo->osd, p->osd, frame->current ? frame->current->pts : 0, 0, img);
 
     if (frame->current != p->original_image)
