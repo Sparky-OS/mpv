@@ -88,6 +88,7 @@ enum mp_voctrl {
     VOCTRL_SET_CURSOR_VISIBILITY,       // bool*
 
     VOCTRL_CONTENT_TYPE,                // enum mp_content_type*
+    VOCTRL_SET_STEREO_CONTENT,          // bool*
 
     VOCTRL_KILL_SCREENSAVER,
     VOCTRL_RESTORE_SCREENSAVER,
@@ -205,6 +206,9 @@ enum {
     VO_CAP_FRAMEOWNER   = 1 << 5,
     // VO does handle mp_image_params.vflip
     VO_CAP_VFLIP        = 1 << 6,
+    // VO declares its video surface as stereo content, so the window shows
+    // one view.
+    VO_CAP_STEREO_VIEW  = 1 << 7,
 };
 
 enum {
