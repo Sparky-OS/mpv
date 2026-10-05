@@ -51,6 +51,10 @@
 #include "sub/osd.h"
 #include "gpu_next/context.h"
 
+#if HAVE_WAYLAND
+#include "wayland_common.h"
+#endif
+
 #if HAVE_GL && defined(PL_HAVE_OPENGL)
 #include <libplacebo/opengl.h>
 #include "video/out/opengl/ra_gl.h"
@@ -137,6 +141,7 @@ struct priv {
     pl_renderer rr;
     pl_queue queue;
     pl_swapchain sw;
+    pl_swapchain sw_video; // layer under sw's surface, which then holds the controls
     pl_fmt osd_fmt[SUBBITMAP_COUNT];
     pl_tex *sub_tex;
     int num_sub_tex;
@@ -153,7 +158,10 @@ struct priv {
     bool want_seek_reset;
     bool flush_cache;
     bool frame_pending;
+    bool video_pending;
     bool paused;
+    bool stereo_declared;
+    int video_w, video_h;
 
     pl_options pars;
     struct m_config_cache *opts_cache;
@@ -1311,7 +1319,7 @@ static bool set_colorspace_hint(struct priv *p, struct pl_color_space *hint)
             return true;
         }
     }
-    pl_swapchain_colorspace_hint(p->sw, hint);
+    pl_swapchain_colorspace_hint(p->sw_video ? p->sw_video : p->sw, hint);
     return false;
 }
 
@@ -1567,9 +1575,33 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
         external_params = set_colorspace_hint(p, NULL);
     }
 
-    struct pl_swapchain_frame swframe;
+    // With a video layer, swframe is the video and ctlframe the controls over it
+    bool layered = p->sw_video;
+    bool stereo = layered && (frame->current ?
+                  frame->current->params.stereo3d == MP_STEREO3D_SBSL :
+                  p->stereo_declared);
+    struct pl_swapchain_frame swframe, ctlframe;
     bool should_draw = sw->fns->start_frame(sw, NULL); // for wayland logic
-    if (!should_draw || !pl_swapchain_start_frame(p->sw, &swframe)) {
+    if (should_draw && !pl_swapchain_start_frame(p->sw, layered ? &ctlframe : &swframe))
+        should_draw = false;
+    if (should_draw && layered) {
+        // The video layer holds both views when it is declared as stereo
+        int w = ctlframe.fbo->params.w * (stereo ? 2 : 1);
+        int h = ctlframe.fbo->params.h;
+        if (w != p->video_w || h != p->video_h) {
+            p->video_w = w;
+            p->video_h = h;
+            pl_swapchain_resize(p->sw_video, &w, &h);
+        }
+        if (!pl_swapchain_start_frame(p->sw_video, &swframe)) {
+            // Show the controls alone, the swapchain is waiting for them
+            pl_tex_clear(gpu, ctlframe.fbo, (float[4]){0});
+            pl_gpu_flush(gpu);
+            p->frame_pending = true;
+            should_draw = false;
+        }
+    }
+    if (!should_draw) {
         if (frame->current) {
             // Advance the queue state to the current PTS to discard unused frames
             struct pl_queue_params qparams = *pl_queue_params(
@@ -1642,13 +1674,33 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
             target.color.transfer = PL_COLOR_TRC_SRGB;
 #endif
     }
+    // The controls go into their own layer, so the video layer carries none
+    struct pl_frame ctltarget;
+    if (layered) {
+        // Encode them as the video is, as they were drawn into it
+        pl_frame_from_swapchain(&ctltarget, &ctlframe);
+        if (!pl_color_transfer_is_hdr(target.color.transfer))
+            ctltarget.color = target.color;
+        ctltarget.icc = target.icc;
+        ctltarget.lut = target.lut;
+        ctltarget.lut_type = target.lut_type;
+        ctltarget.repr.levels = target.repr.levels;
+    }
     stats_time_start(p->stats, "osd-update");
     update_overlays(vo, p->osd_res,
-                    (frame->current && opts->blend_subs) ? OSD_DRAW_OSD_ONLY : 0,
-                    PL_OVERLAY_COORDS_DST_FRAME, &p->osd_state, &target, frame->current,
-                    frame->current ? frame->current->params.stereo3d : 0, get_ref_luma(p));
+                    (frame->current && opts->blend_subs && !layered) ? OSD_DRAW_OSD_ONLY : 0,
+                    PL_OVERLAY_COORDS_DST_FRAME, &p->osd_state,
+                    layered ? &ctltarget : &target, frame->current,
+                    frame->current && !layered ? frame->current->params.stereo3d : 0,
+                    get_ref_luma(p));
     stats_time_end(p->stats, "osd-update");
-    apply_crop(&target, p->dst, swframe.fbo->params.w, swframe.fbo->params.h);
+    // Each eye gets the picture at the window's size
+    struct mp_rect dst = p->dst;
+    if (stereo) {
+        dst.x0 *= 2;
+        dst.x1 *= 2;
+    }
+    apply_crop(&target, dst, swframe.fbo->params.w, swframe.fbo->params.h);
     update_tm_viz(&pars->color_map_params, &target);
 
     struct pl_frame_mix mix = {0};
@@ -1700,7 +1752,7 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
             struct mp_image *mpi = image->user_data;
             struct frame_priv *fp = mpi->priv;
             apply_crop(image, p->src, vo->params->w, vo->params->h);
-            if (opts->blend_subs) {
+            if (opts->blend_subs && !layered) {
                 if (frame->redraw)
                     p->osd_sync++;
                 if (fp->osd_sync < p->osd_sync) {
@@ -1756,6 +1808,24 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
         goto done;
     }
 
+    if (layered) {
+        // Transparent but for the controls
+        struct pl_render_params ctlparams = params;
+        ctlparams.info_callback = NULL;
+        ctlparams.border = PL_CLEAR_COLOR;
+        ctlparams.background_color[0] = 0;
+        ctlparams.background_color[1] = 0;
+        ctlparams.background_color[2] = 0;
+        ctlparams.background_transparency = 1;
+        stats_time_start(p->stats, "render-controls");
+        render_ok = pl_render_image(p->rr, NULL, &ctltarget, &ctlparams);
+        stats_time_end(p->stats, "render-controls");
+        if (!render_ok) {
+            MP_ERR(vo, "Failed rendering controls!\n");
+            goto done;
+        }
+    }
+
     struct pl_frame ref_frame;
     pl_frames_infer_mix(p->rr, &mix, &target, &ref_frame);
 
@@ -1784,9 +1854,20 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
 done:
     if (!valid) // clear with purple to indicate error
         pl_tex_clear(gpu, swframe.fbo, (float[4]){ 0.5, 0.0, 1.0, 1.0 });
+    if (layered && !valid)
+        pl_tex_clear(gpu, ctlframe.fbo, (float[4]){0});
+
+    // The declaration changes with the frame that needs it
+    if (layered && stereo != p->stereo_declared) {
+#if HAVE_WAYLAND
+        vo_wayland_set_stereo_content(vo->wl, stereo);
+#endif
+        p->stereo_declared = stereo;
+    }
 
     pl_gpu_flush(gpu);
     p->frame_pending = true;
+    p->video_pending = layered;
     return VO_TRUE;
 }
 
@@ -1795,12 +1876,21 @@ static void flip_page(struct vo *vo)
     struct priv *p = vo->priv;
     struct ra_swapchain *sw = p->ra_ctx->swapchain;
 
+    // The video goes first, both reach the compositor with the controls' commit
+    if (p->video_pending) {
+        if (!pl_swapchain_submit_frame(p->sw_video))
+            MP_ERR(vo, "Failed presenting video layer!\n");
+        p->video_pending = false;
+    }
+
     if (p->frame_pending) {
         if (!pl_swapchain_submit_frame(p->sw))
             MP_ERR(vo, "Failed presenting frame!\n");
         p->frame_pending = false;
     }
 
+    if (p->sw_video)
+        pl_swapchain_swap_buffers(p->sw_video);
     sw->fns->swap_buffers(sw);
 }
 
@@ -2176,6 +2266,11 @@ static int control(struct vo *vo, uint32_t request, void *data)
     case VOCTRL_SET_PANSCAN:
         resize(vo);
         return VO_TRUE;
+    case VOCTRL_SET_STEREO_CONTENT:
+        // With a video layer the declaration follows the frames
+        if (p->sw_video)
+            return true;
+        break;
     case VOCTRL_PAUSE:
         if (p->is_interpolated)
             vo->want_redraw = true;
@@ -2505,6 +2600,7 @@ static void uninit(struct vo *vo)
     p->pllog = NULL;
     p->gpu = NULL;
     p->sw = NULL;
+    p->sw_video = NULL;
     gpu_ctx_destroy(&p->context);
 }
 
@@ -2527,6 +2623,7 @@ static int preinit(struct vo *vo)
     struct gl_video_opts *gl_opts = p->opts_cache->opts;
     struct ra_ctx_opts *ctx_opts = mp_get_config_group(vo, vo->global, &ra_ctx_conf);
     update_ra_ctx_options(vo, ctx_opts);
+    ctx_opts->video_layer = !ctx_opts->want_alpha;
     p->context = gpu_ctx_create(vo, ctx_opts);
     talloc_free(ctx_opts);
     if (!p->context)
@@ -2536,6 +2633,8 @@ static int preinit(struct vo *vo)
     p->pllog = p->context->pllog;
     p->gpu = p->context->gpu;
     p->sw = p->context->swapchain;
+    p->sw_video = p->context->video_swapchain;
+    vo->stereo_view = p->sw_video;
     p->hwdec_ctx = (struct ra_hwdec_ctx) {
         .log = p->log,
         .global = p->global,

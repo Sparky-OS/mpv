@@ -1859,9 +1859,13 @@ Video
     as high, holds full size views, and any other frame holds half size views
     that are stretched to the full size. To force a packing, use
     ``--vf=format:stereo-in=<mode>`` (``sbsl`` and ``abl`` are the full size
-    modes; ``--vf=format:stereo-in=help`` lists them). Subtitles and the OSD are
-    drawn once per eye, at one eye's size. Videos that do not signal 3D are
-    not touched.
+    modes; ``--vf=format:stereo-in=help`` lists them). Where the video and
+    the window have their own surfaces (``--vo=dmabuf-wayland``, and
+    ``--vo=gpu-next`` with Vulkan on a Wayland compositor that accepts the
+    declaration) only the video surface is declared, and the subtitles, the
+    OSD and the on-screen controller stay in the window's surface, which the
+    compositor shows the same in both eyes. Elsewhere they are drawn once per
+    eye, at one eye's size. Videos that do not signal 3D are not touched.
 
 ``--frames=<number>``
     Play/convert only first ``<number>`` video frames, then quit.
