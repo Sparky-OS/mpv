@@ -1248,7 +1248,8 @@ static void apply_target_options(struct priv *p, struct pl_frame *target,
         mp_parse_raw_primaries(mp_null_log, opts->target_gamut, &target->color.hdr.prim);
     int dither_depth = opts->dither_depth;
     if (dither_depth == 0) {
-        struct ra_swapchain *sw = p->ra_ctx->swapchain;
+        struct ra_swapchain *sw = p->ra_ctx->video_swapchain ? p->ra_ctx->video_swapchain
+                                                             : p->ra_ctx->swapchain;
         dither_depth = sw->fns->color_depth ? sw->fns->color_depth(sw) : 0;
     }
 #if PL_API_VER >= 362
@@ -1577,6 +1578,7 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
 
     // With a video layer, swframe is the video and ctlframe the controls over it
     bool layered = p->sw_video;
+    struct ra_swapchain *vsw = p->ra_ctx->video_swapchain;
     bool stereo = layered && (frame->current ?
                   frame->current->params.stereo3d == MP_STEREO3D_SBSL :
                   p->stereo_declared);
@@ -1591,7 +1593,7 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
         if (w != p->video_w || h != p->video_h) {
             p->video_w = w;
             p->video_h = h;
-            pl_swapchain_resize(p->sw_video, &w, &h);
+            gpu_ctx_resize_video(p->context, w, h);
         }
         if (!pl_swapchain_start_frame(p->sw_video, &swframe)) {
             // Show the controls alone, the swapchain is waiting for them
@@ -1800,6 +1802,8 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
     }
 
     // Render frame
+    if (layered)
+        vsw->fns->start_frame(vsw, NULL); // for contexts with a surface each
     stats_time_start(p->stats, "render");
     bool render_ok = pl_render_image_mix(p->rr, &mix, &target, &params);
     stats_time_end(p->stats, "render");
@@ -1817,6 +1821,7 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
         ctlparams.background_color[1] = 0;
         ctlparams.background_color[2] = 0;
         ctlparams.background_transparency = 1;
+        sw->fns->start_frame(sw, NULL);
         stats_time_start(p->stats, "render-controls");
         render_ok = pl_render_image(p->rr, NULL, &ctltarget, &ctlparams);
         stats_time_end(p->stats, "render-controls");
@@ -1852,10 +1857,14 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
     // fall through
 
 done:
+    if (layered && !valid)
+        vsw->fns->start_frame(vsw, NULL);
     if (!valid) // clear with purple to indicate error
         pl_tex_clear(gpu, swframe.fbo, (float[4]){ 0.5, 0.0, 1.0, 1.0 });
-    if (layered && !valid)
+    if (layered && !valid) {
+        sw->fns->start_frame(sw, NULL);
         pl_tex_clear(gpu, ctlframe.fbo, (float[4]){0});
+    }
 
     // The declaration changes with the frame that needs it
     if (layered && stereo != p->stereo_declared) {
@@ -1889,8 +1898,9 @@ static void flip_page(struct vo *vo)
         p->frame_pending = false;
     }
 
-    if (p->sw_video)
-        pl_swapchain_swap_buffers(p->sw_video);
+    struct ra_swapchain *vsw = p->ra_ctx->video_swapchain;
+    if (vsw)
+        vsw->fns->swap_buffers(vsw);
     sw->fns->swap_buffers(sw);
 }
 

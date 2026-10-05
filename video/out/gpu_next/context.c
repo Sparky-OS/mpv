@@ -167,6 +167,15 @@ struct gpu_ctx *gpu_ctx_create(struct vo *vo, struct ra_ctx_opts *ctx_opts)
         if (!ctx->swapchain)
             goto err_out;
 
+        if (ctx->ra_ctx->video_swapchain) {
+            ctx->video_swapchain = pl_opengl_create_swapchain(opengl, pl_opengl_swapchain_params(
+                .max_swapchain_depth = vo->opts->swapchain_depth,
+                .framebuffer.flipped = gl->flipped,
+            ));
+            if (!ctx->video_swapchain)
+                goto err_out;
+        }
+
         return ctx;
     }
 #elif HAVE_GL
@@ -192,6 +201,21 @@ bool gpu_ctx_resize(struct gpu_ctx *ctx, int w, int h)
     return pl_swapchain_resize(ctx->swapchain, &w, &h);
 }
 
+bool gpu_ctx_resize_video(struct gpu_ctx *ctx, int w, int h)
+{
+    struct ra_ctx *ra_ctx = ctx->ra_ctx;
+    if (!ra_ctx->fns->resize_video(ra_ctx, w, h))
+        return false;
+
+#if HAVE_VULKAN
+    if (ra_vk_ctx_get(ra_ctx))
+        // vulkan RA handles this by itself
+        return true;
+#endif
+
+    return pl_swapchain_resize(ctx->video_swapchain, &w, &h);
+}
+
 void gpu_ctx_destroy(struct gpu_ctx **ctxp)
 {
     struct gpu_ctx *ctx = *ctxp;
@@ -207,6 +231,8 @@ void gpu_ctx_destroy(struct gpu_ctx **ctxp)
         goto skip_common_pl_cleanup;
 #endif
 
+    if (ctx->video_swapchain)
+        pl_swapchain_destroy(&ctx->video_swapchain);
     if (ctx->swapchain)
         pl_swapchain_destroy(&ctx->swapchain);
 
