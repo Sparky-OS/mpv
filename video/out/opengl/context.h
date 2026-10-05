@@ -17,6 +17,10 @@ enum gles_mode ra_gl_ctx_get_glesmode(struct ra_ctx *ctx);
 void ra_gl_ctx_uninit(struct ra_ctx *ctx);
 bool ra_gl_ctx_init(struct ra_ctx *ctx, GL *gl, struct ra_ctx_params params);
 
+// Add the swapchain of a video layer, after ra_gl_ctx_init(). Its surface is
+// resized with ra_gl_ctx_resize(ctx->video_swapchain, ...).
+void ra_gl_ctx_init_video(struct ra_ctx *ctx, GL *gl, struct ra_ctx_params params);
+
 // Call this any time the window size or main framebuffer changes
 void ra_gl_ctx_resize(struct ra_swapchain *sw, int w, int h, int fbo);
 

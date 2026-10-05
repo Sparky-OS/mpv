@@ -29,6 +29,9 @@ struct ra_ctx {
     struct ra_ctx_opts opts;
     const struct ra_ctx_fns *fns;
     struct ra_swapchain *swapchain;
+    // The swapchain of the video layer, under the one of the window's surface
+    // (Wayland, see ra_ctx_opts.video_layer), or NULL.
+    struct ra_swapchain *video_swapchain;
     struct spirv_compiler *spirv;
 
     void *priv;
@@ -54,6 +57,10 @@ struct ra_ctx_fns {
     void (*wait_events)(struct ra_ctx *ctx, int64_t until_time_ns);
     void (*update_render_opts)(struct ra_ctx *ctx);
 
+    // Resize the video layer's surface, which has its own size. Required with
+    // ra_ctx.video_swapchain.
+    bool (*resize_video)(struct ra_ctx *ctx, int width, int height);
+
     // Initialize/destroy the 'struct ra' and possibly the underlying VO backend.
     // Not normally called by the user of the ra_ctx.
     bool (*init)(struct ra_ctx *ctx);
@@ -74,6 +81,10 @@ struct ra_ctx_params {
 
     // See ra_swapchain_fns.color_depth.
     int (*color_depth)(struct ra_ctx *ctx);
+
+    // For contexts with a video layer: make the surface of the swapchain the
+    // one rendered to. Optional.
+    void (*make_current)(struct ra_ctx *ctx);
 
     // Preferred device color space. Optional.
     pl_color_space_t (*preferred_csp)(struct ra_ctx *ctx);
