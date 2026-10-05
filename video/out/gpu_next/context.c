@@ -120,6 +120,7 @@ struct gpu_ctx *gpu_ctx_create(struct vo *vo, struct ra_ctx_opts *ctx_opts)
         ctx->pllog = vkctx->pllog;
         ctx->gpu = vkctx->gpu;
         ctx->swapchain = vkctx->swapchain;
+        ctx->video_swapchain = vkctx->video_swapchain;
         return ctx;
     }
 #endif

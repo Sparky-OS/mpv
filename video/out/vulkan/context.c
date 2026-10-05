@@ -171,6 +171,7 @@ void ra_vk_ctx_uninit(struct ra_ctx *ctx)
 
     if (ctx->ra) {
         pl_gpu_finish(vk->gpu);
+        pl_swapchain_destroy(&vk->video_swapchain);
         pl_swapchain_destroy(&vk->swapchain);
         ctx->ra->fns->destroy(ctx->ra);
         ctx->ra = NULL;
@@ -472,7 +473,7 @@ bool ra_vk_ctx_init(struct ra_ctx *ctx, struct mpvk_ctx *vk,
         .surface = vk->surface,
         .present_mode = preferred_mode,
         .swapchain_depth = ctx->vo->opts->swapchain_depth,
-        .alpha_bits = ctx->opts.want_alpha ? 8 : 0,
+        .alpha_bits = ctx->opts.want_alpha || vk->video_surface ? 8 : 0,
     };
 
     if (p->opts->swap_mode >= 0) // user override
@@ -481,6 +482,17 @@ bool ra_vk_ctx_init(struct ra_ctx *ctx, struct mpvk_ctx *vk,
     vk->swapchain = pl_vulkan_create_swapchain(vk->vulkan, &pl_params);
     if (!vk->swapchain)
         goto error;
+
+    if (vk->video_surface) {
+        // The video is opaque, the window's swapchain above it carries the
+        // alpha and stays SDR whatever the video is.
+        pl_swapchain_colorspace_hint(vk->swapchain, &pl_color_space_srgb);
+        pl_params.surface = vk->video_surface;
+        pl_params.alpha_bits = 0;
+        vk->video_swapchain = pl_vulkan_create_swapchain(vk->vulkan, &pl_params);
+        if (!vk->video_swapchain)
+            goto error;
+    }
 
     return true;
 
@@ -574,6 +586,9 @@ static void get_vsync(struct ra_swapchain *sw,
 static bool set_color(struct ra_swapchain *sw, struct mp_image_params *params)
 {
     struct priv *p = sw->priv;
+    // The video's colors belong to the video layer when there is one.
+    pl_swapchain video_sw = p->vk->video_swapchain ? p->vk->video_swapchain
+                                                   : p->vk->swapchain;
 
     // Vulkan Wayland needs special handling to avoid duplicated color surface.
     bool waylandvk = strcmp(sw->ctx->fns->name, "waylandvk") == 0;
@@ -587,7 +602,7 @@ static bool set_color(struct ra_swapchain *sw, struct mp_image_params *params)
           // cleanup of swapchain retired by pl_swapchain_colorspace_hint,
           // otherwise there's a possibility the Wayland color surface will be
           // held while we try to create a new one.
-          pl_swapchain_colorspace_hint(p->vk->swapchain,
+          pl_swapchain_colorspace_hint(video_sw,
                                        &(struct pl_color_space){0});
         }
         bool ret = p->params.set_color(sw->ctx, params);

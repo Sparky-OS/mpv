@@ -42,6 +42,16 @@ void mpvk_uninit(struct mpvk_ctx *vk)
         vk->surface = VK_NULL_HANDLE;
     }
 
+    if (vk->video_surface) {
+        mp_assert(vk->vkinst);
+        mp_assert(vk->vkinst->get_proc_addr);
+        PFN_vkDestroySurfaceKHR pDestroySurfaceKHR = (PFN_vkDestroySurfaceKHR)
+            vk->vkinst->get_proc_addr(vk->vkinst->instance, "vkDestroySurfaceKHR");
+        if (pDestroySurfaceKHR)
+            pDestroySurfaceKHR(vk->vkinst->instance, vk->video_surface, NULL);
+        vk->video_surface = VK_NULL_HANDLE;
+    }
+
     pl_vk_inst_destroy(&vk->vkinst);
     pl_log_destroy(&vk->pllog);
 }

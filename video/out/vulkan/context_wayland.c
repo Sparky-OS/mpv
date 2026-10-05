@@ -114,6 +114,15 @@ static bool wayland_vk_init(struct ra_ctx *ctx)
         goto error;
     }
 
+    if (ctx->opts.video_layer && vo_wayland_enable_video_layer(ctx->vo->wl)) {
+        wlinfo.surface = ctx->vo->wl->video_surface;
+        res = vkCreateWaylandSurfaceKHR(inst, &wlinfo, NULL, &vk->video_surface);
+        if (res != VK_SUCCESS) {
+            MP_MSG(ctx, msgl, "Failed creating Wayland video surface\n");
+            goto error;
+        }
+    }
+
     /* If the Wayland compositor does not support fifo and presentation time
      * v2 protocols, the compositor will stop sending callbacks if the surface
      * is no longer visible. This means using FIFO would block the entire vo
