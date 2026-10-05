@@ -103,6 +103,7 @@ struct vo_wayland_state {
     bool state_change;
     bool stereo_declare;
     bool tiled;
+    bool video_layer;
     bool toplevel_configured;
     bool surface_configured;
     int display_fd;
@@ -238,6 +239,7 @@ int vo_wayland_control(struct vo *vo, int *events, int request, void *arg);
 
 void vo_wayland_handle_color(struct vo_wayland_state *wl, struct mp_image_params *params);
 void vo_wayland_handle_scale(struct vo_wayland_state *wl);
+bool vo_wayland_enable_video_layer(struct vo_wayland_state *wl);
 bool vo_wayland_set_stereo_content(struct vo_wayland_state *wl, bool active);
 void vo_wayland_set_opaque_region(struct vo_wayland_state *wl, bool alpha);
 void vo_wayland_sync_swap(struct vo_wayland_state *wl);

@@ -3812,6 +3812,12 @@ nosupport:
 }
 #endif
 
+// The video's colors belong to the video layer when there is one
+static struct wl_surface *color_surface_target(struct vo_wayland_state *wl)
+{
+    return wl->video_layer ? wl->video_surface : wl->callback_surface;
+}
+
 #if HAVE_WAYLAND_PROTOCOLS_1_44
 static void set_color_representation(struct vo_wayland_state *wl, struct mp_image_params *params)
 {
@@ -3822,7 +3828,7 @@ static void set_color_representation(struct vo_wayland_state *wl, struct mp_imag
         wp_color_representation_surface_v1_destroy(wl->color_representation_surface);
 
     wl->color_representation_surface =
-        wp_color_representation_manager_v1_get_surface(wl->color_representation_manager, wl->callback_surface);
+        wp_color_representation_manager_v1_get_surface(wl->color_representation_manager, color_surface_target(wl));
 
     int alpha = wl->alpha_map[params->repr.alpha];
     int coefficients = wl->coefficients_map[params->repr.sys];
@@ -4477,7 +4483,7 @@ void vo_wayland_handle_color(struct vo_wayland_state *wl, struct mp_image_params
     }
     if (wl->color_manager) {
         if (!wl->color_surface)
-            wl->color_surface = wp_color_manager_v1_get_surface(wl->color_manager, wl->callback_surface);
+            wl->color_surface = wp_color_manager_v1_get_surface(wl->color_manager, color_surface_target(wl));
     }
 
     bool color_space_changed = !pl_color_space_equal(&wl->last_hint_params.color, &params->color);
@@ -4512,6 +4518,8 @@ void vo_wayland_handle_scale(struct vo_wayland_state *wl)
         height = lround(mp_rect_h(wl->geometry) / wl->scaling_factor);
     }
     wp_viewport_set_destination(wl->viewport, width, height);
+    if (wl->video_layer)
+        wp_viewport_set_destination(wl->video_viewport, width, height);
 }
 
 bool vo_wayland_valid_format(struct vo_wayland_state *wl, uint32_t drm_format, uint64_t modifier)
@@ -4832,7 +4840,23 @@ bool vo_wayland_set_stereo_content(struct vo_wayland_state *wl, bool active)
                 mp_strerror(-ret));
         return false;
     }
-    wl_surface_commit(wl->video_surface);
+    // The renderer owning the layer commits the surface with its next frame.
+    if (!wl->video_layer)
+        wl_surface_commit(wl->video_surface);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool vo_wayland_enable_video_layer(struct vo_wayland_state *wl)
+{
+#if HAVE_STEREO_DECLARE
+    if (!wl->stereo_declare || !stereo_supported_wayland() || !wl->video_subsurface)
+        return false;
+
+    wl_subsurface_place_below(wl->video_subsurface, wl->surface);
+    wl->video_layer = true;
     return true;
 #else
     return false;
@@ -4843,7 +4867,7 @@ void vo_wayland_set_opaque_region(struct vo_wayland_state *wl, bool alpha)
 {
     const int32_t width = lrint(mp_rect_w(wl->geometry) / wl->scaling_factor);
     const int32_t height = lrint(mp_rect_h(wl->geometry) / wl->scaling_factor);
-    if (!alpha) {
+    if (!alpha && !wl->video_layer) {
         struct wl_region *region = wl_compositor_create_region(wl->compositor);
         wl_region_add(region, 0, 0, width, height);
         wl_surface_set_opaque_region(wl->surface, region);
