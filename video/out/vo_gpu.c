@@ -39,6 +39,10 @@
 #include "gpu/hwdec.h"
 #include "gpu/video.h"
 
+#if HAVE_WAYLAND
+#include "wayland_common.h"
+#endif
+
 struct gpu_priv {
     struct mp_log *log;
     struct ra_ctx *ctx;
@@ -48,20 +52,35 @@ struct gpu_priv {
     struct gl_video *renderer;
 
     int events;
+
+    // The video layer, when there is one, holds both views of a 3D video
+    bool stereo;
 };
 static void resize(struct vo *vo)
 {
     struct gpu_priv *p = vo->priv;
     struct ra_swapchain *sw = p->ctx->swapchain;
+    struct ra_swapchain *video_sw = p->ctx->video_swapchain;
 
     MP_VERBOSE(vo, "Resize: %dx%d\n", vo->dwidth, vo->dheight);
 
     struct mp_rect src, dst;
     struct mp_osd_res osd;
     vo_get_src_dst_rects(vo, &src, &dst, &osd);
+    // Each eye gets the picture at the window's size
+    if (p->stereo) {
+        dst.x0 *= 2;
+        dst.x1 *= 2;
+    }
 
     gl_video_resize(p->renderer, &src, &dst, &osd);
 
+    if (video_sw) {
+        // The video layer holds both views of a 3D video, and the video is
+        // what gets dithered
+        p->ctx->fns->resize_video(p->ctx, vo->dwidth * (p->stereo ? 2 : 1), vo->dheight);
+        sw = video_sw;
+    }
     int fb_depth = sw->fns->color_depth ? sw->fns->color_depth(sw) : 0;
     if (fb_depth)
         MP_VERBOSE(p, "Reported display depth: %d\n", fb_depth);
@@ -70,10 +89,58 @@ static void resize(struct vo *vo)
     vo->want_redraw = true;
 }
 
+// The video goes into its own layer, and the controls into the window's
+// surface above it, which the compositor shows with the same frame
+static bool draw_frame_layers(struct vo *vo, struct vo_frame *frame)
+{
+    struct gpu_priv *p = vo->priv;
+    struct ra_swapchain *sw = p->ctx->swapchain;
+    struct ra_swapchain *video_sw = p->ctx->video_swapchain;
+
+    // The declaration changes with the frame that needs it
+    bool stereo = frame->current ? frame->current->params.stereo3d == MP_STEREO3D_SBSL
+                                 : p->stereo;
+    if (stereo != p->stereo) {
+        p->stereo = stereo;
+#if HAVE_WAYLAND
+        vo_wayland_set_stereo_content(vo->wl, stereo);
+#endif
+        resize(vo);
+    }
+
+    struct ra_fbo fbo, video_fbo;
+    if (!sw->fns->start_frame(sw, &fbo))
+        return VO_FALSE;
+    bool video_ok = video_sw->fns->start_frame(video_sw, &video_fbo);
+    if (video_ok)
+        gl_video_render_frame(p->renderer, frame, &video_fbo, RENDER_SCREEN_COLOR);
+
+    sw->fns->start_frame(sw, NULL); // for contexts with a surface each
+    gl_video_render_frame(p->renderer, frame, &fbo,
+                          RENDER_FRAME_SUBS | RENDER_FRAME_OSD | RENDER_FRAME_CONTROLS);
+
+    if (video_ok && !video_sw->fns->submit_frame(video_sw, frame))
+        MP_ERR(vo, "Failed presenting video layer!\n");
+    if (!sw->fns->submit_frame(sw, frame)) {
+        MP_ERR(vo, "Failed presenting frame!\n");
+        return VO_FALSE;
+    }
+
+    struct mp_image_params *params = gl_video_get_target_params_ptr(p->renderer);
+    mp_mutex_lock(&vo->params_mutex);
+    vo->target_params = params;
+    mp_mutex_unlock(&vo->params_mutex);
+
+    return VO_TRUE;
+}
+
 static bool draw_frame(struct vo *vo, struct vo_frame *frame)
 {
     struct gpu_priv *p = vo->priv;
     struct ra_swapchain *sw = p->ctx->swapchain;
+
+    if (p->ctx->video_swapchain)
+        return draw_frame_layers(vo, frame);
 
     struct ra_fbo fbo;
     if (!sw->fns->start_frame(sw, &fbo))
@@ -97,6 +164,9 @@ static void flip_page(struct vo *vo)
 {
     struct gpu_priv *p = vo->priv;
     struct ra_swapchain *sw = p->ctx->swapchain;
+    struct ra_swapchain *video_sw = p->ctx->video_swapchain;
+    if (video_sw)
+        video_sw->fns->swap_buffers(video_sw);
     sw->fns->swap_buffers(sw);
 }
 
@@ -193,6 +263,11 @@ static int control(struct vo *vo, uint32_t request, void *data)
     case VOCTRL_SET_PANSCAN:
         resize(vo);
         return VO_TRUE;
+    case VOCTRL_SET_STEREO_CONTENT:
+        // With a video layer the declaration follows the frames
+        if (p->ctx->video_swapchain)
+            return true;
+        break;
     case VOCTRL_SCREENSHOT: {
         struct vo_frame *frame = vo_get_current_vo_frame(vo);
         if (frame)
@@ -299,12 +374,14 @@ static int preinit(struct vo *vo)
 
     struct ra_ctx_opts *ctx_opts = mp_get_config_group(vo, vo->global, &ra_ctx_conf);
     update_ra_ctx_options(vo, ctx_opts);
+    ctx_opts->video_layer = !ctx_opts->want_alpha;
     p->ctx = ra_ctx_create(vo, *ctx_opts);
     talloc_free(ctx_opts);
     if (!p->ctx)
         goto err_out;
     mp_assert(p->ctx->ra);
     mp_assert(p->ctx->swapchain);
+    vo->stereo_view = p->ctx->video_swapchain;
 
     p->renderer = gl_video_init(p->ctx->ra, vo->log, vo->global);
     gl_video_set_osd_source(p->renderer, vo->osd);
