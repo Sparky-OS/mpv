@@ -36,4 +36,7 @@ struct mpvk_ctx {
     pl_gpu gpu; // points to vulkan->gpu for convenience
     pl_swapchain swapchain;
     VkSurfaceKHR surface;
+    // The video layer under the window's surface (Wayland only), if any
+    pl_swapchain video_swapchain;
+    VkSurfaceKHR video_surface;
 };

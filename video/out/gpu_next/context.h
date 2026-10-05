@@ -31,6 +31,7 @@ struct gpu_ctx {
     pl_log pllog;
     pl_gpu gpu;
     pl_swapchain swapchain;
+    pl_swapchain video_swapchain; // under the swapchain's surface, or NULL
 
     void *priv;
 };
