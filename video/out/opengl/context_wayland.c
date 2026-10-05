@@ -35,6 +35,10 @@ struct priv {
     EGLSurface egl_surface;
     EGLConfig  egl_config;
     struct wl_egl_window *egl_window;
+    // The video layer under the window's surface, if there is one
+    EGLSurface video_surface;
+    struct wl_egl_window *video_window;
+    int video_w, video_h;
 };
 
 static void resize(struct ra_ctx *ctx)
@@ -73,11 +77,44 @@ static bool wayland_egl_set_color(struct ra_ctx *ctx, struct mp_image_params *pa
     return true;
 }
 
+static void wayland_egl_make_current(struct ra_ctx *ctx)
+{
+    struct priv *p = ctx->priv;
+    eglMakeCurrent(p->egl_display, p->egl_surface, p->egl_surface, p->egl_context);
+}
+
+static void wayland_egl_make_current_video(struct ra_ctx *ctx)
+{
+    struct priv *p = ctx->priv;
+    eglMakeCurrent(p->egl_display, p->video_surface, p->video_surface, p->egl_context);
+}
+
+static void wayland_egl_swap_video_buffers(struct ra_ctx *ctx)
+{
+    struct priv *p = ctx->priv;
+    wayland_egl_make_current_video(ctx);
+    eglSwapBuffers(p->egl_display, p->video_surface);
+}
+
+static bool wayland_egl_resize_video(struct ra_ctx *ctx, int width, int height)
+{
+    struct priv *p = ctx->priv;
+    if (width != p->video_w || height != p->video_h) {
+        p->video_w = width;
+        p->video_h = height;
+        wl_egl_window_resize(p->video_window, width, height, 0, 0);
+    }
+    ra_gl_ctx_resize(ctx->video_swapchain, width, height, 0);
+    return true;
+}
+
 static void wayland_egl_swap_buffers(struct ra_ctx *ctx)
 {
     struct priv *p = ctx->priv;
     struct vo_wayland_state *wl = ctx->vo->wl;
 
+    if (p->video_surface)
+        wayland_egl_make_current(ctx);
     eglSwapBuffers(p->egl_display, p->egl_surface);
 
     if (wl->opts->wl_internal_vsync)
@@ -116,6 +153,7 @@ static bool egl_create_context(struct ra_ctx *ctx)
     mpegl_load_functions(&p->gl, wl->log);
 
     struct ra_ctx_params params = {
+        .make_current       = wl->video_layer ? wayland_egl_make_current : NULL,
         .check_visible      = wayland_egl_check_visible,
         .preferred_csp      = wayland_egl_preferred_csp,
         .set_color          = wayland_egl_set_color,
@@ -125,6 +163,14 @@ static bool egl_create_context(struct ra_ctx *ctx)
 
     if (!ra_gl_ctx_init(ctx, &p->gl, params))
         return false;
+
+    if (wl->video_layer) {
+        struct ra_ctx_params video_params = {
+            .make_current       = wayland_egl_make_current_video,
+            .swap_buffers       = wayland_egl_swap_video_buffers,
+        };
+        ra_gl_ctx_init_video(ctx, &p->gl, video_params);
+    }
 
     ra_add_native_resource(ctx->ra, "wl", wl->display);
 
@@ -157,6 +203,22 @@ static void egl_create_window(struct ra_ctx *ctx)
     }
 
     eglSwapInterval(p->egl_display, 0);
+
+    if (wl->video_layer) {
+        p->video_w = mp_rect_w(wl->geometry);
+        p->video_h = mp_rect_h(wl->geometry);
+        p->video_window = wl_egl_window_create(wl->video_surface, p->video_w,
+                                               p->video_h);
+        p->video_surface = mpegl_create_window_surface(
+            p->egl_display, p->egl_config, p->video_window);
+        if (p->video_surface == EGL_NO_SURFACE) {
+            p->video_surface = eglCreateWindowSurface(
+                p->egl_display, p->egl_config, p->video_window, NULL);
+        }
+        wayland_egl_make_current_video(ctx);
+        eglSwapInterval(p->egl_display, 0);
+        wayland_egl_make_current(ctx);
+    }
 }
 
 static bool wayland_egl_reconfig(struct ra_ctx *ctx)
@@ -182,6 +244,10 @@ static void wayland_egl_uninit(struct ra_ctx *ctx)
         eglReleaseThread();
         if (p->egl_window)
             wl_egl_window_destroy(p->egl_window);
+        if (p->video_window)
+            wl_egl_window_destroy(p->video_window);
+        if (p->video_surface)
+            eglDestroySurface(p->egl_display, p->video_surface);
         eglDestroySurface(p->egl_display, p->egl_surface);
         eglMakeCurrent(p->egl_display, NULL, NULL, EGL_NO_CONTEXT);
         eglDestroyContext(p->egl_display, p->egl_context);
@@ -226,8 +292,14 @@ static void wayland_egl_update_render_opts(struct ra_ctx *ctx)
 static bool wayland_egl_init(struct ra_ctx *ctx)
 {
     ctx->priv = talloc_zero(ctx, struct priv);
-    if (vo_wayland_init(ctx->vo) && egl_create_context(ctx))
+    if (!vo_wayland_init(ctx->vo))
+        goto error;
+    // The window's surface then holds the controls, with alpha
+    if (ctx->opts.video_layer && vo_wayland_enable_video_layer(ctx->vo->wl))
+        ctx->opts.want_alpha = true;
+    if (egl_create_context(ctx))
         return true;
+error:
     wayland_egl_uninit(ctx);
     return false;
 }
@@ -241,6 +313,7 @@ const struct ra_ctx_fns ra_ctx_wayland_egl = {
     .wakeup             = wayland_egl_wakeup,
     .wait_events        = wayland_egl_wait_events,
     .update_render_opts = wayland_egl_update_render_opts,
+    .resize_video       = wayland_egl_resize_video,
     .init               = wayland_egl_init,
     .uninit             = wayland_egl_uninit,
 };
