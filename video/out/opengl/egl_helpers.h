@@ -20,6 +20,10 @@ struct mpegl_cb {
     // be found.
     int (*refine_config)(void *user_data, EGLConfig *configs, int num_configs);
     void *user_data;
+    // create the context without a config (EGL_KHR_no_config_context), so that
+    // surfaces of any config can be made current. The config is still chosen
+    // and returned, for the surface that wants it. Ignored if not supported.
+    bool no_config;
 };
 
 bool mpegl_create_context_cb(struct ra_ctx *ctx, EGLDisplay display,

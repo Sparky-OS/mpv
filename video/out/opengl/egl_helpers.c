@@ -242,6 +242,12 @@ static bool create_context(struct ra_ctx *ctx, EGLDisplay display,
     MP_DBG(ctx, "Chosen EGLConfig:\n");
     dump_egl_config(ctx->log, MSGL_DEBUG, display, config);
 
+    EGLConfig ctx_config = config;
+#ifdef EGL_KHR_no_config_context
+    if (cb.no_config && gl_check_extension(egl_exts, "EGL_KHR_no_config_context"))
+        ctx_config = EGL_NO_CONFIG_KHR;
+#endif
+
     int ctx_flags = ctx->opts.debug ? EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR : 0;
     EGLContext *egl_ctx = NULL;
 
@@ -258,7 +264,7 @@ static bool create_context(struct ra_ctx *ctx, EGLDisplay display,
                 EGL_NONE
             };
 
-            egl_ctx = eglCreateContext(display, config, EGL_NO_CONTEXT, attrs);
+            egl_ctx = eglCreateContext(display, ctx_config, EGL_NO_CONTEXT, attrs);
             if (egl_ctx)
                 break;
         }
@@ -271,9 +277,9 @@ static bool create_context(struct ra_ctx *ctx, EGLDisplay display,
             EGL_NONE
         };
 
-        egl_ctx = eglCreateContext(display, config, EGL_NO_CONTEXT, attrs);
+        egl_ctx = eglCreateContext(display, ctx_config, EGL_NO_CONTEXT, attrs);
         if (!egl_ctx)
-            egl_ctx = eglCreateContext(display, config, EGL_NO_CONTEXT, &attrs[2]);
+            egl_ctx = eglCreateContext(display, ctx_config, EGL_NO_CONTEXT, &attrs[2]);
     }
 
     if (!egl_ctx) {
