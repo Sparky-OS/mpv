@@ -13,6 +13,7 @@ struct ra_ctx_opts {
     bool debug;           // enable debugging layers/callbacks etc.
     bool probing;        // the backend was auto-probed
     bool composition;    // enable swapchain composition
+    bool video_layer;    // draw the video into its own surface under the window's
     struct m_obj_settings *context_list; // list of `ra_ctx_fns.name` to probe
     struct m_obj_settings *context_type_list;  // list of `ra_ctx_fns.type` to probe
 };

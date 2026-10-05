@@ -159,6 +159,7 @@ void ra_vk_ctx_uninit(struct ra_ctx *ctx)
 
     if (ctx->ra) {
         pl_gpu_finish(vk->gpu);
+        pl_swapchain_destroy(&vk->video_swapchain);
         pl_swapchain_destroy(&vk->swapchain);
         ctx->ra->fns->destroy(ctx->ra);
         ctx->ra = NULL;
@@ -420,6 +421,9 @@ bool ra_vk_ctx_init(struct ra_ctx *ctx, struct mpvk_ctx *vk,
         .surface = vk->surface,
         .present_mode = preferred_mode,
         .swapchain_depth = ctx->vo->opts->swapchain_depth,
+#if PL_API_VER >= 359
+        .alpha_bits = vk->video_surface ? 8 : 0,
+#endif
     };
 
     if (p->opts->swap_mode >= 0) // user override
@@ -428,6 +432,19 @@ bool ra_vk_ctx_init(struct ra_ctx *ctx, struct mpvk_ctx *vk,
     vk->swapchain = pl_vulkan_create_swapchain(vk->vulkan, &pl_params);
     if (!vk->swapchain)
         goto error;
+
+    if (vk->video_surface) {
+        // The video is opaque, the window's swapchain above it carries the
+        // alpha and stays SDR whatever the video is.
+        pl_swapchain_colorspace_hint(vk->swapchain, &pl_color_space_srgb);
+        pl_params.surface = vk->video_surface;
+#if PL_API_VER >= 359
+        pl_params.alpha_bits = 0;
+#endif
+        vk->video_swapchain = pl_vulkan_create_swapchain(vk->vulkan, &pl_params);
+        if (!vk->video_swapchain)
+            goto error;
+    }
 
     return true;
 
