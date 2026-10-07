@@ -3684,6 +3684,15 @@ Property list
     ``track-list/N/demux-par``
         Pixel aspect ratio.
 
+    ``track-list/N/demux-projection``
+        How the container says the video maps a sphere onto the frame (MP4
+        ``sv3d``, Matroska ``Projection``): ``equirectangular`` (the whole
+        sphere, 360 by 180 degrees), ``half-equirectangular`` (the front half,
+        180 by 180 degrees, as VR180), ``equirectangular-tile`` (another part
+        of an equirectangular picture), ``cubemap`` or ``mesh``. The property
+        is unavailable for an ordinary video. Use ``--vf=lavfi=[v360=...]``
+        to turn such a video into a flat view.
+
     ``track-list/N/demux-duration``
         Track duration as indicated by the container.
 
@@ -3759,6 +3768,7 @@ Property list
                 "demux-bitrate"     MPV_FORMAT_INT64
                 "demux-rotation"    MPV_FORMAT_INT64
                 "demux-par"         MPV_FORMAT_DOUBLE
+                "demux-projection"  MPV_FORMAT_STRING
                 "format-name"       MPV_FORMAT_STRING
                 "audio-channels"    MPV_FORMAT_INT64
                 "replaygain-track-peak" MPV_FORMAT_DOUBLE

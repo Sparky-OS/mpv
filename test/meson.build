@@ -115,6 +115,12 @@ test('linked-list', linked_list)
 timer = executable('timer', files('timer.c'), include_directories: incdir, link_with: test_utils)
 test('timer', timer)
 
+projection = executable('projection', files('projection.c'),
+                        objects: libmpv.extract_objects('video/projection.c'),
+                        include_directories: incdir, dependencies: libavutil,
+                        link_with: test_utils)
+test('projection', projection)
+
 format = executable('format', files('format.c'), include_directories: incdir, link_with: test_utils)
 test('format', format)
 

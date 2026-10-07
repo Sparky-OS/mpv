@@ -230,6 +230,7 @@ sources = files(
     'video/image_writer.c',
     'video/img_format.c',
     'video/mp_image.c',
+    'video/projection.c',
     'video/mp_image_pool.c',
     'video/out/aspect.c',
     'video/out/bitmap_packer.c',

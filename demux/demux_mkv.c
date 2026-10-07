@@ -117,6 +117,7 @@ typedef struct mkv_track {
     struct pl_color_space color;
     enum pl_chroma_location chroma_location;
     uint32_t v_crop_top, v_crop_left, v_crop_right, v_crop_bottom;
+    int v_projection_type;
     float v_projection_pose_yaw;
     float v_projection_pose_pitch;
     float v_projection_pose_roll;
@@ -694,6 +695,12 @@ static void parse_trackcolour(struct demuxer *demuxer, struct mkv_track *track,
 static void parse_trackprojection(struct demuxer *demuxer, struct mkv_track *track,
                                   struct ebml_projection *projection)
 {
+    if (projection->n_projection_type) {
+        track->v_projection_type = mp_projection_from_mkv(projection->projection_type);
+        MP_DBG(demuxer, "|   + Projection type: %"PRIu64"\n",
+               projection->projection_type);
+    }
+
     if (projection->n_projection_pose_yaw) {
         track->v_projection_pose_yaw = projection->projection_pose_yaw;
         MP_DBG(demuxer, "|   + Projection pose yaw: %f\n",
@@ -1765,6 +1772,7 @@ static int demux_mkv_open_video(demuxer_t *demuxer, mkv_track_t *track, int idx)
     sh_v->par_h = p.p_h;
 
     sh_v->stereo_mode = track->stereo_mode;
+    sh_v->projection = track->v_projection_type;
     sh_v->repr = track->repr;
     sh_v->color = track->color;
     sh_v->chroma_location = track->chroma_location;

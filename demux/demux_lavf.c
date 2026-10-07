@@ -37,6 +37,7 @@
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/replaygain.h>
+#include <libavutil/spherical.h>
 #include <libavutil/stereo3d.h>
 
 #include "audio/chmap_avchannel.h"
@@ -787,6 +788,9 @@ static void handle_new_stream(demuxer_t *demuxer, int i)
 
         if ((sd = mp_av_stream_get_side_data(st, AV_PKT_DATA_STEREO3D)))
             sh->codec->stereo_mode = mp_stereo3d_from_av((const AVStereo3D *)sd);
+
+        if ((sd = mp_av_stream_get_side_data(st, AV_PKT_DATA_SPHERICAL)))
+            sh->codec->projection = mp_projection_from_av((const AVSphericalMapping *)sd);
 
         if ((sd = mp_av_stream_get_side_data(st, AV_PKT_DATA_DOVI_CONF))) {
             const AVDOVIDecoderConfigurationRecord *cfg = (void *) sd;
