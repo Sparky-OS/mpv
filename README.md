@@ -1,3 +1,29 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/sparky-stereo-os/sparkyos-swirl-light-128.png">
+  <img src=".github/sparky-stereo-os/sparkyos-swirl-dark-128.png" alt="SparkyOS" width="128" height="128">
+</picture>
+
+## Sparky Stereo OS
+
+This is the stereo version of mpv by Sparky Stereo OS, forked from [mpv-player/mpv](https://github.com/mpv-player/mpv).
+It unpacks 3D video to full side by side and declares stereo video to the compositor on Wayland and X11.
+It draws the controls once in each view.
+It takes the packing from the H.264 and H.265 frame packing SEI before the container's tag.
+
+Where it comes from:
+
+- [mpv](https://mpv.io) is made by the mpv developers. It is a fork of mplayer2, which is a fork of MPlayer; see [Copyright](Copyright).
+- [Debian](https://www.debian.org/) is the base of the system.
+- [SparkyLinux](https://sparkylinux.org/), by Paweł "pavroo" Pijanowski, builds on Debian.
+- [Sparky Stereo OS](https://github.com/Sparky-OS/sparky-stereo-os) is the stereo 3D edition of SparkyLinux: SparkyOS, powered by Debian.
+
+The `stereo3d` branch holds the version the distribution builds.
+The licences are unchanged; see [Copyright](Copyright), [LICENSE.GPL](LICENSE.GPL) and [LICENSE.LGPL](LICENSE.LGPL).
+
+Sparky Stereo OS, Daniel Ramos's edition of SparkyLinux (by Paweł "pavroo" Pijanowski).
+
+---
+
 ![mpv logo](https://raw.githubusercontent.com/mpv-player/mpv.io/master/source/images/mpv-logo-128.png)
 
 # mpv
