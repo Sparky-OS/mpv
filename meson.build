@@ -362,6 +362,14 @@ if features['stereo-declare']
     dependencies += stereo_declare
 endif
 
+stereo_policy = dependency('stereo-policy', required: get_option('stereo-policy'))
+# the tag reader and the halves test came with version 1.5 of the library
+features += {'stereo-policy': stereo_policy.found() and
+             cc.has_function('stereo_policy_name_tag', dependencies: stereo_policy)}
+if features['stereo-policy']
+    dependencies += stereo_policy
+endif
+
 # C11 atomics are mandatory but linking to the library is not always required.
 dependencies += cc.find_library('atomic', required: false)
 
