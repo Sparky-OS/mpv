@@ -748,6 +748,14 @@ Track Manipulation
 ``video-reload [<id>]``
     Reload the given video tracks. See ``sub-reload`` command.
 
+``video-stereo-store-swap``
+    Store the swap of the eyes now in effect (``--video-stereo-swap`` combined
+    with the file's own correction) with the playing local file, in its
+    extended attribute ``user.stereo-policy.swap-eyes``, so that mpv, and the
+    other players that use the stereo policy library, show the file with its
+    eyes the right way round from then on. Fails for a stream, or where the
+    file system keeps no extended attributes.
+
 ``rescan-external-files [<mode>]``
     Rescan external files according to the current ``--sub-auto``,
     ``--audio-file-auto`` and ``--cover-art-auto`` settings. This can be used
