@@ -385,6 +385,12 @@ static void get_display_res(struct mp_stream_info *i, int *res)
         vo_control(p->vo, VOCTRL_GET_DISPLAY_RES, res);
 }
 
+static bool stereo_declared(struct mp_stream_info *i)
+{
+    struct chain *p = i->priv;
+    return p->vo && p->vo->stereo_declared;
+}
+
 void mp_output_chain_set_vo(struct mp_output_chain *c, struct vo *vo)
 {
     struct chain *p = c->f->priv;
@@ -659,6 +665,7 @@ static void create_video_things(struct chain *p)
     p->stream_info.priv = p;
     p->stream_info.get_display_fps = get_display_fps;
     p->stream_info.get_display_res = get_display_res;
+    p->stream_info.stereo_declared = stereo_declared;
 
     p->f->stream_info = &p->stream_info;
 

@@ -141,6 +141,7 @@ struct priv {
     bool frame_pending;
     bool video_pending;
     bool stereo_declared;
+    bool stereo_refused;
     int video_w, video_h;
 
     pl_options pars;
@@ -1277,9 +1278,10 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
     // With a video layer, swframe is the video and ctlframe the controls over it
     bool layered = p->sw_video;
     struct ra_swapchain *vsw = p->ra_ctx->video_swapchain;
-    bool stereo = layered && (frame->current ?
-                  frame->current->params.stereo3d == MP_STEREO3D_SBSL :
-                  p->stereo_declared);
+    bool stereo_frame = frame->current ? frame->current->params.stereo3d == MP_STEREO3D_SBSL
+                                       : p->stereo_declared;
+    // Both views go to the video layer only where the compositor took the declaration
+    bool stereo = layered && stereo_frame && !p->stereo_refused;
     struct pl_swapchain_frame swframe, ctlframe;
     bool should_draw = sw->fns->start_frame(sw, NULL); // for wayland logic
     if (should_draw && !pl_swapchain_start_frame(p->sw, layered ? &ctlframe : &swframe))
@@ -1563,11 +1565,14 @@ done:
     }
 
     // The declaration changes with the frame that needs it
-    if (layered && stereo != p->stereo_declared) {
+    if (layered && stereo_frame != p->stereo_declared) {
 #if HAVE_WAYLAND
-        vo_wayland_set_stereo_content(vo->wl, stereo);
+        bool taken = vo_wayland_set_stereo_content(vo->wl, stereo_frame);
+        p->stereo_refused = stereo_frame && !taken;
+        if (p->stereo_refused)
+            MP_WARN(vo, "The compositor did not take the stereo declaration: showing the frame as it is.\n");
 #endif
-        p->stereo_declared = stereo;
+        p->stereo_declared = stereo_frame;
     }
 
     pl_gpu_flush(gpu);

@@ -55,6 +55,7 @@ struct gpu_priv {
 
     // The video layer, when there is one, holds both views of a 3D video
     bool stereo;
+    bool stereo_wanted;
     struct mp_rect src, dst;
     struct mp_osd_res osd;
 };
@@ -99,11 +100,16 @@ static bool draw_frame_layers(struct vo *vo, struct vo_frame *frame)
 
     // The declaration changes with the frame that needs it
     bool stereo = frame->current ? frame->current->params.stereo3d == MP_STEREO3D_SBSL
-                                 : p->stereo;
-    if (stereo != p->stereo) {
+                                 : p->stereo_wanted;
+    if (stereo != p->stereo_wanted) {
+        p->stereo_wanted = stereo;
+        // Both views go to the video layer only where the compositor took the declaration
         p->stereo = stereo;
 #if HAVE_WAYLAND
-        vo_wayland_set_stereo_content(vo->wl, stereo);
+        if (!vo_wayland_set_stereo_content(vo->wl, stereo) && stereo) {
+            MP_WARN(vo, "The compositor did not take the stereo declaration: showing the frame as it is.\n");
+            p->stereo = false;
+        }
 #endif
         resize(vo);
     }
