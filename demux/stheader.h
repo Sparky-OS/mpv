@@ -120,6 +120,7 @@ struct mp_codec_params {
     int disp_w, disp_h;   // display size
     int rotate;           // intended display rotation, in degrees, [0, 359]
     int stereo_mode;      // mp_stereo3d_mode (0 if none/unknown)
+    int stereo_plane_w, stereo_plane_h; // Matroska DisplayWidth/Height of a stereo track: one plane (0 if not given)
     bool stereo_mode_set; // the stream says it (stereo_mode 0 is then a mono mark)
     int projection;       // mp_projection (0 if none/unknown)
     struct pl_color_space color; // colorspace info where available
