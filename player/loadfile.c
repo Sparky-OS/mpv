@@ -1689,8 +1689,10 @@ static void play_current_file(struct MPContext *mpctx)
     mpctx->filename = talloc_strdup(NULL, mpctx->playing->filename);
     mpctx->stream_open_filename = mpctx->filename;
     // the file name carries the 3D tag of a video that says nothing (--video-stereo)
-    m_config_set_option_cli(mpctx->mconfig, bstr0("video-stereo-name"),
-                            bstr0(mp_basename(mpctx->filename)), 0);
+    // (without the query and the fragment of an address)
+    bstr stereo_name = bstr0(mp_basename(mpctx->filename));
+    stereo_name = bstr_splice(stereo_name, 0, bstrcspn(stereo_name, "?#"));
+    m_config_set_option_cli(mpctx->mconfig, bstr0("video-stereo-name"), stereo_name, 0);
 #if HAVE_STEREO_POLICY
     // the user's correction stored with a local file (user.stereo-policy.swap-eyes)
     bool stored_swap = !mp_is_url(bstr0(mpctx->filename)) &&
