@@ -81,6 +81,10 @@
 
 #include "core.h"
 
+#if HAVE_STEREO_POLICY
+#include <stereo-policy.h>
+#endif
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -6463,6 +6467,28 @@ static void cmd_rescan_external_files(void *p)
     }
 }
 
+// Store the effective swap of the eyes of the playing file with the file (user.stereo-policy.swap-eyes), so that the
+// correction is kept with it; the session's swap then reads as no change.
+static void cmd_video_stereo_store_swap(void *p)
+{
+    struct mp_cmd_ctx *cmd = p;
+    struct MPContext *mpctx = cmd->mpctx;
+
+#if HAVE_STEREO_POLICY
+    struct filter_opts *fopts = mp_get_config_group(NULL, mpctx->global, &filter_conf);
+    bool swap = fopts->video_stereo_swap != fopts->video_stereo_swap_file;
+    talloc_free(fopts);
+
+    char *path = mpctx->filename;
+    if (path && !mp_is_url(bstr0(path)) && stereo_policy_set_file_swap_eyes(path, swap) == 0) {
+        m_config_set_option_cli(mpctx->mconfig, bstr0("video-stereo-swap-file"), bstr0(swap ? "yes" : "no"), 0);
+        m_config_set_option_cli(mpctx->mconfig, bstr0("video-stereo-swap"), bstr0("no"), 0);
+        return;
+    }
+#endif
+    cmd->success = false;
+}
+
 static void cmd_run(void *p)
 {
     struct mp_cmd_ctx *cmd = p;
@@ -7342,6 +7368,8 @@ const struct mp_cmd_def mp_cmds[] = {
         .can_abort = true,
         .abort_on_playback_end = true,
     },
+
+    { "video-stereo-store-swap", cmd_video_stereo_store_swap },
 
     { "rescan-external-files", cmd_rescan_external_files,
         {

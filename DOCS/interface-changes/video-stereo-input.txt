@@ -1,1 +1,2 @@
 add `--video-stereo-input`, `--video-stereo-swap` and `--video-stereo-swap-file` options
+add `video-stereo-store-swap` command
