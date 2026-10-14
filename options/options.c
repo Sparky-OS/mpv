@@ -459,6 +459,7 @@ const struct m_sub_options cuda_conf = {
 const struct m_sub_options filter_conf = {
     .opts = (const struct m_option[]){
         {"video-stereo", OPT_BOOL(video_stereo)},
+        {"video-stereo-name", OPT_STRING(video_stereo_name)},
         {"deinterlace", OPT_CHOICE(deinterlace,
             {"no", 0}, {"yes", 1}, {"auto", -1})},
         {"deinterlace-field-parity", OPT_CHOICE(field_parity,

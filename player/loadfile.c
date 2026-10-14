@@ -1684,6 +1684,9 @@ static void play_current_file(struct MPContext *mpctx)
 
     mpctx->filename = talloc_strdup(NULL, mpctx->playing->filename);
     mpctx->stream_open_filename = mpctx->filename;
+    // the file name carries the 3D tag of a video that says nothing (--video-stereo)
+    m_config_set_option_cli(mpctx->mconfig, bstr0("video-stereo-name"),
+                            bstr0(mp_basename(mpctx->filename)), 0);
 
     mpctx->add_osd_seek_info &= OSD_SEEK_INFO_CURRENT_FILE;
 

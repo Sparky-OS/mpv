@@ -10,6 +10,10 @@
 #include "video/mp_image.h"
 #include "video/mp_image_pool.h"
 
+#if HAVE_STEREO_POLICY
+#include <stereo-policy.h>
+#endif
+
 #include "f_auto_filters.h"
 #include "f_autoconvert.h"
 #include "f_hwtransfer.h"
@@ -344,6 +348,8 @@ struct stereo_priv {
     int prev_stereo3d;
     int prev_imgfmt;
     struct m_config_cache *opts;
+    bool halves_done;
+    int halves;
 };
 
 static const char *stereo_input_name(int mode)
@@ -367,24 +373,77 @@ static const char *stereo_input_name(int mode)
     }
 }
 
-// The stream's signalling gives the arrangement, not whether the views are
-// half or full. Tell them apart by the shape: a frame wider than any normal
-// picture holds two full views side by side, a frame taller than one holds
-// two full views on top of each other.
-static int stereo_packing(const struct mp_image_params *p)
+#if HAVE_STEREO_POLICY
+// The packing of the frames, from the shared stereo policy: the stream's mark (which says the arrangement, not
+// whether its views are half or full size: that comes from the shape the mark leaves, as the policy has it), then the
+// file name's 3D tag, then the shape of a video that says nothing. A user's choice comes through the format filter.
+static int stereo_halves(struct stereo_priv *p, const struct mp_image *img)
 {
-    int dw, dh;
-    mp_image_params_get_dsize(p, &dw, &dh);
-    double aspect = (double)dw / MPMAX(dh, 1);
-
-    switch (p->stereo3d) {
-    case MP_STEREO3D_SBS2L: return aspect >= 2.5 ? MP_STEREO3D_SBSL : p->stereo3d;
-    case MP_STEREO3D_SBS2R: return aspect >= 2.5 ? MP_STEREO3D_SBSR : p->stereo3d;
-    case MP_STEREO3D_AB2L:  return aspect <= 1.2 ? MP_STEREO3D_ABL : p->stereo3d;
-    case MP_STEREO3D_AB2R:  return aspect <= 1.2 ? MP_STEREO3D_ABR : p->stereo3d;
-    default: return p->stereo3d;
+    if (!p->halves_done) {
+        p->halves_done = true;
+        p->halves = STEREO_POLICY_HALVES_UNKNOWN;
+        const struct mp_imgfmt_desc *d = &img->fmt;
+        // only a frame in memory can be looked at: a hardware frame leaves the video 2D
+        if (!(d->flags & MP_IMGFLAG_HWACCEL) && (d->flags & (MP_IMGFLAG_YUV_P | MP_IMGFLAG_GRAY)) &&
+            d->bpp[0] == 8 && img->planes[0])
+            p->halves = stereo_policy_halves_test(img->planes[0], img->w, img->h, img->stride[0]);
     }
+    return p->halves;
 }
+
+static int stereo_packing(struct stereo_priv *p, const char *name, const struct mp_image *img)
+{
+    const struct mp_image_params *ip = &img->params;
+    const char *mark = NULL;
+    switch (ip->stereo3d) {
+    case MP_STEREO3D_MONO:
+        mark = ip->stereo3d_marked ? "mono" : NULL;
+        break;
+    case MP_STEREO3D_SBS2L: mark = "sideBySideLeftFirst"; break;
+    case MP_STEREO3D_SBS2R: mark = "sideBySideRightFirst"; break;
+    case MP_STEREO3D_AB2L:  mark = "topBottomLeftFirst"; break;
+    case MP_STEREO3D_AB2R:  mark = "topBottomRightFirst"; break;
+    default: return ip->stereo3d; // already full, or a packing that has no half or full size
+    }
+
+    int dw, dh;
+    mp_image_params_get_dsize(ip, &dw, &dh);
+
+    int tag_layout, tag_order, tag_views, three_d = 0;
+    int halves = STEREO_POLICY_HALVES_UNKNOWN;
+    if (!mark && name && stereo_policy_name_tag(name, &tag_layout, &tag_order, &tag_views, &three_d) == 1 &&
+        three_d && tag_layout == STEREO_POLICY_LAYOUT_NONE && !stereo_policy_video_side_by_side_by_shape(dw, dh))
+        halves = stereo_halves(p, img);
+
+    int layout, order, source, views;
+    if (stereo_policy_video_layout_named(dw, dh, mark, name, halves, 0, 0, 0, &layout, &order, &source, &views) < 0)
+        return ip->stereo3d;
+    if (layout != STEREO_POLICY_LAYOUT_SIDE_BY_SIDE && layout != STEREO_POLICY_LAYOUT_TOP_AND_BOTTOM)
+        return MP_STEREO3D_MONO;
+
+    bool full;
+    if (source == STEREO_POLICY_SOURCE_SHAPE)
+        full = true; // two pictures next to each other
+    else if (source == STEREO_POLICY_SOURCE_NAME && views >= 0)
+        full = views == 1;
+    else // the container's plane size decides when it can, else the shape of the frame as shown
+        full = stereo_policy_video_views(ip->w, ip->h, ip->p_w, ip->p_h, ip->stereo3d_plane_w, ip->stereo3d_plane_h,
+                                         STEREO_POLICY_UPSAMPLED_UNKNOWN, layout, NULL) == 1;
+
+    bool right = order == STEREO_POLICY_RIGHT_FIRST;
+    if (layout == STEREO_POLICY_LAYOUT_SIDE_BY_SIDE)
+        return full ? (right ? MP_STEREO3D_SBSR : MP_STEREO3D_SBSL)
+                    : (right ? MP_STEREO3D_SBS2R : MP_STEREO3D_SBS2L);
+    return full ? (right ? MP_STEREO3D_ABR : MP_STEREO3D_ABL)
+                : (right ? MP_STEREO3D_AB2R : MP_STEREO3D_AB2L);
+}
+#else
+// Without the stereo policy the stream's arrangement is taken as it is: the shape decides nothing
+static int stereo_packing(struct stereo_priv *p, const char *name, const struct mp_image *img)
+{
+    return img->params.stereo3d;
+}
+#endif
 
 static void stereo_process(struct mp_filter *f)
 {
@@ -409,7 +468,8 @@ static void stereo_process(struct mp_filter *f)
     struct mp_image *img = frame.data;
 
     m_config_cache_update(p->opts);
-    int packing = stereo_packing(&img->params);
+    struct filter_opts *fopts = p->opts->opts;
+    int packing = stereo_packing(p, fopts->video_stereo_name, img);
     const char *input = stereo_input_name(packing);
     struct filter_opts *opts = p->opts->opts;
     bool wanted = opts->video_stereo && input;
@@ -419,6 +479,7 @@ static void stereo_process(struct mp_filter *f)
     {
         p->prev_imgfmt = img->imgfmt;
         p->prev_stereo3d = packing;
+        MP_VERBOSE(f, "3D packing of the video: %s\n", input ? input : "none");
         if (!mp_subfilter_drain_destroy(&p->sub))
             return;
     }
