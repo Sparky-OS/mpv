@@ -1749,6 +1749,23 @@ static int demux_mkv_open_video(demuxer_t *demuxer, mkv_track_t *track)
 
     int dw = track->v_dwidth_set ? track->v_dwidth : crop_compat_w;
     int dh = track->v_dheight_set ? track->v_dheight : crop_compat_h;
+    // The display size of a side by side or top and bottom track is the size of one plane (RFC 9559 section 18.10);
+    // the frame holds two of them, as FFmpeg's demuxer takes it. A display size as large as the frame is the default
+    // that muxers write and says nothing about the planes.
+    if (track->stereo_mode_set && track->v_dwidth_set && track->v_dheight_set &&
+        !(dw == crop_compat_w && dh == crop_compat_h))
+    {
+        switch (track->stereo_mode) {
+        case MP_STEREO3D_SBS2L:
+        case MP_STEREO3D_SBS2R:
+            dw *= 2;
+            break;
+        case MP_STEREO3D_AB2L:
+        case MP_STEREO3D_AB2R:
+            dh *= 2;
+            break;
+        }
+    }
     struct mp_image_params p = {.w = crop_compat_w, .h = crop_compat_h};
     mp_image_params_set_dsize(&p, dw, dh);
     sh_v->par_w = p.p_w;
