@@ -4536,8 +4536,10 @@ bool vo_wayland_reconfig(struct vo *vo)
 bool vo_wayland_set_stereo_content(struct vo_wayland_state *wl, bool active)
 {
 #if HAVE_STEREO_DECLARE
-    if (!wl->stereo_declare)
+    if (!wl->stereo_declare) {
+        wl->vo->stereo_declared = false;
         return false;
+    }
 
     int ret = active ?
         stereo_declare_wayland(wl->video_surface, STEREO_SBS_FULL,
@@ -4546,8 +4548,14 @@ bool vo_wayland_set_stereo_content(struct vo_wayland_state *wl, bool active)
     if (ret < 0) {
         MP_WARN(wl, "Updating the stereo declaration failed: %s\n",
                 mp_strerror(-ret));
+        wl->vo->stereo_declared = false;
         return false;
     }
+    // The filters set the display size of one view only once this is true
+    bool changed = wl->vo->stereo_declared != active;
+    wl->vo->stereo_declared = active;
+    if (changed && active)
+        vo_event(wl->vo, VO_EVENT_STEREO_DECLARED);
     // The renderer owning the layer commits the surface with its next frame.
     if (!wl->video_layer)
         wl_surface_commit(wl->video_surface);

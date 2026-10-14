@@ -407,6 +407,8 @@ struct mp_stream_info {
     struct osd_state *osd;
     bool vflip;
     bool stereo_view;
+    // whether the compositor accepted the declaration of the video as stereo content
+    bool (*stereo_declared)(struct mp_stream_info *i);
     bool rotate90;
     struct vo *dr_vo; // for calling vo_get_image()
 };

@@ -2110,6 +2110,7 @@ int vo_x11_control(struct vo *vo, int *events, int request, void *arg)
         if (ret < 0)
             MP_WARN(vo, "Updating the stereo declaration failed: %s\n",
                     mp_strerror(-ret));
+        vo->stereo_declared = active && ret >= 0;
         return VO_TRUE;
     }
 #endif

@@ -48,10 +48,13 @@ enum {
     // For VOCTRL_GET_HIDPI_SCALE changes.
     VO_EVENT_DPI                        = 1 << 6,
     VO_EVENT_FOCUS                      = 1 << 7,
+    // The compositor accepted the declaration of the video as stereo content
+    VO_EVENT_STEREO_DECLARED            = 1 << 8,
 
     // Set of events the player core may be interested in.
     VO_EVENTS_USER = VO_EVENT_RESIZE | VO_EVENT_WIN_STATE | VO_EVENT_DPI |
-                     VO_EVENT_FOCUS | VO_EVENT_AMBIENT_LIGHTING_CHANGED,
+                     VO_EVENT_FOCUS | VO_EVENT_AMBIENT_LIGHTING_CHANGED |
+                     VO_EVENT_STEREO_DECLARED,
 };
 
 enum mp_voctrl {
@@ -523,6 +526,10 @@ struct vo {
     // the video is declared as full side by side stereo content, so the window
     // size is that of one view
     bool stereo_content;
+
+    // the compositor accepted the declaration of the video as full side by
+    // side stereo content (set by the VO thread, read by the filters)
+    bool stereo_declared;
 
     // current GPU context (--vo=gpu and --vo=gpu-next only)
     const char *context_name;

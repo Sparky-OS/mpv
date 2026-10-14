@@ -347,6 +347,7 @@ struct stereo_priv {
     struct mp_subfilter sub;
     int prev_stereo3d;
     int prev_imgfmt;
+    bool prev_declared;
     struct m_config_cache *opts;
     bool halves_done;
     int halves;
@@ -538,12 +539,17 @@ static void stereo_process(struct mp_filter *f)
     const char *input = stereo_input_name(packing);
     struct filter_opts *opts = p->opts->opts;
     bool wanted = opts->video_stereo && input;
+    // The display size of one view is set only once the compositor accepted the declaration
+    struct mp_stream_info *sinfo = mp_filter_find_stream_info(f);
+    bool declared = sinfo && sinfo->stereo_view && sinfo->stereo_declared &&
+                    sinfo->stereo_declared(sinfo);
 
     if (img->imgfmt != p->prev_imgfmt || packing != p->prev_stereo3d ||
-        (p->sub.filter && !wanted))
+        declared != p->prev_declared || (p->sub.filter && !wanted))
     {
         p->prev_imgfmt = img->imgfmt;
         p->prev_stereo3d = packing;
+        p->prev_declared = declared;
         MP_VERBOSE(f, "3D packing of the video: %s\n", input ? input : "none");
         if (!mp_subfilter_drain_destroy(&p->sub))
             return;
@@ -575,10 +581,10 @@ static void stereo_process(struct mp_filter *f)
         char *args[] = {"in", (char *)input, "out", "sbsl", NULL};
         filters[1] = mp_create_user_filter(subf, MP_OUTPUT_CHAIN_VIDEO,
                                            "stereo3d", args);
-        // The window shows one view: the display size of one view.
+        // The window shows one view, the display size of one view, but only where the declaration was accepted:
+        // otherwise the compositor shows the frame as it is, and nothing here pretends it is a single view.
         char *format_args[] = {"stereo-in", "sbsl", NULL, NULL, NULL};
-        struct mp_stream_info *info = mp_filter_find_stream_info(f);
-        if (info && info->stereo_view) {
+        if (declared) {
             int dw, dh;
             mp_image_params_get_dsize(&img->params, &dw, &dh);
             if (packing == MP_STEREO3D_SBSL || packing == MP_STEREO3D_SBSR)

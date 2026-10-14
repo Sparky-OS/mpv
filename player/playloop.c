@@ -890,6 +890,14 @@ static void handle_vo_events(struct MPContext *mpctx)
         mp_notify(mpctx, MP_EVENT_FOCUS, NULL);
     if (events & VO_EVENT_AMBIENT_LIGHTING_CHANGED)
         mp_notify(mpctx, MP_EVENT_AMBIENT_LIGHTING_CHANGED, NULL);
+    if (events & VO_EVENT_STEREO_DECLARED) {
+        // the filters take the display size of one view from the declaration
+        struct track *track = mpctx->current_track[0][STREAM_VIDEO];
+        if (track && track->dec) {
+            mp_decoder_wrapper_reset_params(track->dec);
+            mp_force_video_refresh(mpctx);
+        }
+    }
 }
 
 static void handle_sstep(struct MPContext *mpctx)
