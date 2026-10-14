@@ -610,8 +610,10 @@ static void fix_image_params(struct priv *p,
     if (m.p_w <= 0 || m.p_h <= 0)
         m.p_w = m.p_h = 1;
 
-    if (!m.stereo3d)
+    if (!m.stereo3d_marked) {
         m.stereo3d = p->codec->stereo_mode;
+        m.stereo3d_marked = p->codec->stereo_mode_set;
+    }
 
     if (!mp_rect_equals(&p->codec->crop, &(struct mp_rect){0})) {
         struct mp_rect crop = p->codec->crop;

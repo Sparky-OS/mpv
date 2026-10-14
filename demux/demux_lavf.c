@@ -764,8 +764,10 @@ static void handle_new_stream(demuxer_t *demuxer, int i)
                 sh->codec->rotate = (((int)(-r) % 360) + 360) % 360;
         }
 
-        if ((sd = mp_av_stream_get_side_data(st, AV_PKT_DATA_STEREO3D)))
+        if ((sd = mp_av_stream_get_side_data(st, AV_PKT_DATA_STEREO3D))) {
             sh->codec->stereo_mode = mp_stereo3d_from_av((const AVStereo3D *)sd);
+            sh->codec->stereo_mode_set = true;
+        }
 
         if ((sd = mp_av_stream_get_side_data(st, AV_PKT_DATA_SPHERICAL)))
             sh->codec->projection = mp_projection_from_av((const AVSphericalMapping *)sd);
