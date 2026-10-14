@@ -62,6 +62,7 @@ struct mp_image_params {
     // The image should be rotated clockwise (0-359 degrees).
     int rotate;
     enum mp_stereo3d_mode stereo3d; // image is encoded with this mode
+    bool stereo3d_marked; // the stream says so (the mono mode too), as opposed to nothing being known
     struct mp_rect crop;        // crop applied on image
 };
 

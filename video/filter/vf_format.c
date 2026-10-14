@@ -99,8 +99,10 @@ static void set_params(struct vf_format_opts *p, struct mp_image_params *out,
         out->light = p->light;
     if (p->chroma_location)
         out->chroma_location = p->chroma_location;
-    if (p->stereo_in >= 0)
+    if (p->stereo_in >= 0) {
         out->stereo3d = p->stereo_in;
+        out->stereo3d_marked = true;
+    }
     if (p->rotate >= 0)
         out->rotate = p->rotate;
     if (p->alpha)

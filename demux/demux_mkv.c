@@ -112,6 +112,7 @@ typedef struct mkv_track {
     double v_frate;
     uint32_t colorspace;
     int stereo_mode;
+    bool stereo_mode_set;
     struct pl_color_repr repr;
     struct pl_color_space color;
     enum pl_chroma_location chroma_location;
@@ -758,6 +759,7 @@ static void parse_trackvideo(struct demuxer *demuxer, struct mkv_track *track,
         const char *name = MP_STEREO3D_NAME_DEF(video->stereo_mode, NULL);
         if (name) {
             track->stereo_mode = video->stereo_mode;
+            track->stereo_mode_set = true;
             MP_DBG(demuxer, "|   + StereoMode: %s\n", name);
         } else {
             MP_WARN(demuxer, "Unknown StereoMode: %"PRIu64"\n",
@@ -1753,6 +1755,7 @@ static int demux_mkv_open_video(demuxer_t *demuxer, mkv_track_t *track)
     sh_v->par_h = p.p_h;
 
     sh_v->stereo_mode = track->stereo_mode;
+    sh_v->stereo_mode_set = track->stereo_mode_set;
     sh_v->projection = track->v_projection_type;
     sh_v->repr = track->repr;
     sh_v->color = track->color;
