@@ -1756,6 +1756,10 @@ static int demux_mkv_open_video(demuxer_t *demuxer, mkv_track_t *track)
 
     sh_v->stereo_mode = track->stereo_mode;
     sh_v->stereo_mode_set = track->stereo_mode_set;
+    if (track->stereo_mode_set && track->v_dwidth_set && track->v_dheight_set) {
+        sh_v->stereo_plane_w = track->v_dwidth;
+        sh_v->stereo_plane_h = track->v_dheight;
+    }
     sh_v->projection = track->v_projection_type;
     sh_v->repr = track->repr;
     sh_v->color = track->color;

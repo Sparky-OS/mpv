@@ -550,6 +550,8 @@ void mp_image_copy_attributes(struct mp_image *dst, struct mp_image *src)
     dst->params.rotate = src->params.rotate;
     dst->params.stereo3d = src->params.stereo3d;
     dst->params.stereo3d_marked = src->params.stereo3d_marked;
+    dst->params.stereo3d_plane_w = src->params.stereo3d_plane_w;
+    dst->params.stereo3d_plane_h = src->params.stereo3d_plane_h;
     dst->params.p_w = src->params.p_w;
     dst->params.p_h = src->params.p_h;
     dst->params.color = src->params.color;
@@ -878,6 +880,8 @@ bool mp_image_params_equal(const struct mp_image_params *p1,
            p1->rotate == p2->rotate &&
            p1->stereo3d == p2->stereo3d &&
            p1->stereo3d_marked == p2->stereo3d_marked &&
+           p1->stereo3d_plane_w == p2->stereo3d_plane_w &&
+           p1->stereo3d_plane_h == p2->stereo3d_plane_h &&
            mp_rect_equals(&p1->crop, &p2->crop);
 }
 
@@ -1143,6 +1147,8 @@ struct mp_image *mp_image_from_av_frame(struct AVFrame *src)
         struct mp_image_params *p = (void *)src->opaque_ref->data;
         dst->params.stereo3d = p->stereo3d;
         dst->params.stereo3d_marked = p->stereo3d_marked;
+        dst->params.stereo3d_plane_w = p->stereo3d_plane_w;
+        dst->params.stereo3d_plane_h = p->stereo3d_plane_h;
         // Might be incorrect if colorspace changes.
         dst->params.light = p->light;
 #if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(60, 11, 100) || PL_API_VER < 356
