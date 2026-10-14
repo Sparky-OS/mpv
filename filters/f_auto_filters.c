@@ -511,6 +511,30 @@ static int stereo_packing(struct stereo_priv *p, const struct filter_opts *opts,
 }
 #endif
 
+// Whether the container gave the size of one plane, and it says something (the elements' default is the size of the frame)
+static bool stereo_has_plane(const struct mp_image_params *ip)
+{
+    return ip->stereo3d_plane_w > 0 && ip->stereo3d_plane_h > 0 &&
+           !(ip->stereo3d_plane_w == ip->w && ip->stereo3d_plane_h == ip->h);
+}
+
+// The shape of one view as it is shown: the plane of a container that gives it, else the frame as shown (the sample
+// aspect ratio applied) is one view for half size views and two for full size ones
+static double stereo_view_aspect(const struct mp_image *img, int packing)
+{
+    const struct mp_image_params *ip = &img->params;
+    if (stereo_has_plane(ip))
+        return (double)ip->stereo3d_plane_w / ip->stereo3d_plane_h;
+    int dw, dh;
+    mp_image_params_get_dsize(ip, &dw, &dh);
+    double pair = (double)dw / MPMAX(dh, 1);
+    switch (packing) {
+    case MP_STEREO3D_SBSL: case MP_STEREO3D_SBSR: return pair / 2;
+    case MP_STEREO3D_ABL: case MP_STEREO3D_ABR: return pair * 2;
+    default: return pair;
+    }
+}
+
 static void stereo_process(struct mp_filter *f)
 {
     struct stereo_priv *p = f->priv;
@@ -581,18 +605,16 @@ static void stereo_process(struct mp_filter *f)
         char *args[] = {"in", (char *)input, "out", "sbsl", NULL};
         filters[1] = mp_create_user_filter(subf, MP_OUTPUT_CHAIN_VIDEO,
                                            "stereo3d", args);
-        // The window shows one view, the display size of one view, but only where the declaration was accepted:
-        // otherwise the compositor shows the frame as it is, and nothing here pretends it is a single view.
+        // The display shape of the views: the window shows one view, the display size of one view, but only where the
+        // declaration was accepted: otherwise the compositor shows the frame as it is, and nothing here pretends it is
+        // a single view. A container that gives the size of one plane (Matroska) says the shape of a view, which the
+        // sample aspect ratio of the packed frame does not, so the frame is given the shape of its two views.
         char *format_args[] = {"stereo-in", "sbsl", NULL, NULL, NULL};
-        if (declared) {
-            int dw, dh;
-            mp_image_params_get_dsize(&img->params, &dw, &dh);
-            if (packing == MP_STEREO3D_SBSL || packing == MP_STEREO3D_SBSR)
-                dw /= 2;
-            if (packing == MP_STEREO3D_ABL || packing == MP_STEREO3D_ABR)
-                dh /= 2;
+        double view_aspect = stereo_view_aspect(img, packing);
+        bool plane = stereo_has_plane(&img->params);
+        if (declared || plane) {
             format_args[2] = "dar";
-            format_args[3] = mp_tprintf(32, "%f", (double)dw / MPMAX(dh, 1));
+            format_args[3] = mp_tprintf(32, "%f", declared ? view_aspect : 2 * view_aspect);
         }
         filters[2] = mp_create_user_filter(subf, MP_OUTPUT_CHAIN_VIDEO,
                                            "format", format_args);
