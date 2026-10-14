@@ -391,10 +391,61 @@ static int stereo_halves(struct stereo_priv *p, const struct mp_image *img)
     return p->halves;
 }
 
-static int stereo_packing(struct stereo_priv *p, const char *name, const struct mp_image *img)
+// The user's choice of --video-stereo-input as the policy's user_layout, order and full or half views. Returns false
+// for a mode that is neither side by side nor top and bottom (interleaved, checkerboard, alternating, anaglyph).
+static bool stereo_user_mode(int mode, int *layout, int *order, bool *full)
+{
+    switch (mode) {
+    case MP_STEREO3D_SBS2L: case MP_STEREO3D_SBS2R: case MP_STEREO3D_SBSL: case MP_STEREO3D_SBSR:
+        *layout = STEREO_POLICY_LAYOUT_SIDE_BY_SIDE;
+        break;
+    case MP_STEREO3D_AB2L: case MP_STEREO3D_AB2R: case MP_STEREO3D_ABL: case MP_STEREO3D_ABR:
+        *layout = STEREO_POLICY_LAYOUT_TOP_AND_BOTTOM;
+        break;
+    default:
+        return false;
+    }
+    *order = (mode == MP_STEREO3D_SBS2R || mode == MP_STEREO3D_SBSR ||
+              mode == MP_STEREO3D_AB2R || mode == MP_STEREO3D_ABR) ? STEREO_POLICY_RIGHT_FIRST : STEREO_POLICY_LEFT_FIRST;
+    *full = mode == MP_STEREO3D_SBSL || mode == MP_STEREO3D_SBSR || mode == MP_STEREO3D_ABL || mode == MP_STEREO3D_ABR;
+    return true;
+}
+
+// The other eye first, for the packings that have a pair
+static int stereo_swapped(int mode)
+{
+    switch (mode) {
+    case MP_STEREO3D_IRL: return MP_STEREO3D_IRR;
+    case MP_STEREO3D_IRR: return MP_STEREO3D_IRL;
+    case MP_STEREO3D_ICL: return MP_STEREO3D_ICR;
+    case MP_STEREO3D_ICR: return MP_STEREO3D_ICL;
+    case MP_STEREO3D_CHECKL: return MP_STEREO3D_CHECKR;
+    case MP_STEREO3D_CHECKR: return MP_STEREO3D_CHECKL;
+    case MP_STEREO3D_AL: return MP_STEREO3D_AR;
+    case MP_STEREO3D_AR: return MP_STEREO3D_AL;
+    default: return mode;
+    }
+}
+
+static int stereo_packing(struct stereo_priv *p, const struct filter_opts *opts, const char *name,
+                          const struct mp_image *img)
 {
     const struct mp_image_params *ip = &img->params;
+    // the user's choices come before everything the stream says: a packing, or not 3D; the swap applies over the result
+    bool swap = opts->video_stereo_swap != opts->video_stereo_swap_file;
+    int user_layout = STEREO_POLICY_LAYOUT_NONE, user_order = STEREO_POLICY_LEFT_FIRST;
+    bool user_full = false;
+    if (opts->video_stereo_input == MP_STEREO3D_MONO) {
+        user_layout = STEREO_POLICY_USER_FORCE_2D;
+    } else if (opts->video_stereo_input > 0) {
+        if (!stereo_user_mode(opts->video_stereo_input, &user_layout, &user_order, &user_full)) {
+            int mode = opts->video_stereo_input;
+            return swap ? stereo_swapped(mode) : mode;
+        }
+    }
+
     const char *mark = NULL;
+    bool full_by_mode = false;
     switch (ip->stereo3d) {
     case MP_STEREO3D_MONO:
         mark = ip->stereo3d_marked ? "mono" : NULL;
@@ -403,7 +454,15 @@ static int stereo_packing(struct stereo_priv *p, const char *name, const struct 
     case MP_STEREO3D_SBS2R: mark = "sideBySideRightFirst"; break;
     case MP_STEREO3D_AB2L:  mark = "topBottomLeftFirst"; break;
     case MP_STEREO3D_AB2R:  mark = "topBottomRightFirst"; break;
-    default: return ip->stereo3d; // already full, or a packing that has no half or full size
+    // a mode that already says full size (--vf=format:stereo-in=sbsl, or the output of an earlier filter)
+    case MP_STEREO3D_SBSL:  mark = "sideBySideLeftFirst"; full_by_mode = true; break;
+    case MP_STEREO3D_SBSR:  mark = "sideBySideRightFirst"; full_by_mode = true; break;
+    case MP_STEREO3D_ABL:   mark = "topBottomLeftFirst"; full_by_mode = true; break;
+    case MP_STEREO3D_ABR:   mark = "topBottomRightFirst"; full_by_mode = true; break;
+    default: // a packing that has no half or full size
+        if (user_layout == STEREO_POLICY_USER_FORCE_2D)
+            return MP_STEREO3D_MONO;
+        return swap ? stereo_swapped(ip->stereo3d) : ip->stereo3d;
     }
 
     int dw, dh;
@@ -416,14 +475,19 @@ static int stereo_packing(struct stereo_priv *p, const char *name, const struct 
         halves = stereo_halves(p, img);
 
     int layout, order, source, views;
-    if (stereo_policy_video_layout_named(dw, dh, mark, name, halves, 0, 0, 0, &layout, &order, &source, &views) < 0)
+    if (stereo_policy_video_layout_named(dw, dh, mark, name, halves, user_layout, user_order, swap, &layout, &order,
+                                         &source, &views) < 0)
         return ip->stereo3d;
     if (layout != STEREO_POLICY_LAYOUT_SIDE_BY_SIDE && layout != STEREO_POLICY_LAYOUT_TOP_AND_BOTTOM)
         return MP_STEREO3D_MONO;
 
     bool full;
-    if (source == STEREO_POLICY_SOURCE_SHAPE)
+    if (source == STEREO_POLICY_SOURCE_USER)
+        full = user_full;
+    else if (source == STEREO_POLICY_SOURCE_SHAPE)
         full = true; // two pictures next to each other
+    else if (full_by_mode)
+        full = true;
     else if (source == STEREO_POLICY_SOURCE_NAME && views >= 0)
         full = views == 1;
     else // the container's plane size decides when it can, else the shape of the frame as shown
@@ -439,7 +503,8 @@ static int stereo_packing(struct stereo_priv *p, const char *name, const struct 
 }
 #else
 // Without the stereo policy the stream's arrangement is taken as it is: the shape decides nothing
-static int stereo_packing(struct stereo_priv *p, const char *name, const struct mp_image *img)
+static int stereo_packing(struct stereo_priv *p, const struct filter_opts *opts, const char *name,
+                          const struct mp_image *img)
 {
     return img->params.stereo3d;
 }
@@ -469,7 +534,7 @@ static void stereo_process(struct mp_filter *f)
 
     m_config_cache_update(p->opts);
     struct filter_opts *fopts = p->opts->opts;
-    int packing = stereo_packing(p, fopts->video_stereo_name, img);
+    int packing = stereo_packing(p, fopts, fopts->video_stereo_name, img);
     const char *input = stereo_input_name(packing);
     struct filter_opts *opts = p->opts->opts;
     bool wanted = opts->video_stereo && input;

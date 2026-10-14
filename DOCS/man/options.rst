@@ -1800,10 +1800,13 @@ Video
     first, and declare the video surface as stereo content to the compositor
     when the output supports it (default: yes). Whatever the packing and eye
     order of the stream, the result is the same. The stream does not say
-    whether its views are half or full size, so the shape of the frame
-    decides (using the sample aspect ratio): a side by side frame at least 2.5
-    times as wide as high, or a top and bottom frame at most 1.2 times as wide
-    as high, holds full size views, and any other frame holds half size views
+    whether its views are half or full size: an explicit Matroska display size
+    of one plane decides first, then the shape of the frame as shown (the
+    sample aspect ratio applied) against the shape of one ordinary picture.
+    Half size views are stretched to the full size. The 3D tag of the file
+    name (``SBS``, ``HSBS``, ``FSBS``, ``TAB``, ``HOU`` and the like) and the
+    shape of a video that says nothing (side by side at 3:1 or wider) are used
+    only where the stream has no mark, as the stereo policy library has it.
     that are stretched to the full size. To force a packing, use
     ``--vf=format:stereo-in=<mode>`` (``sbsl`` and ``abl`` are the full size
     modes; ``--vf=format:stereo-in=help`` lists them). Where the video and
@@ -1812,7 +1815,25 @@ Video
     declaration, with Vulkan or OpenGL) only the video surface is declared, and the subtitles, the
     OSD and the on-screen controller stay in the window's surface, which the
     compositor shows the same in both eyes. Elsewhere they are drawn once per
-    eye, at one eye's size. Videos that do not signal 3D are not touched.
+    eye, at one eye's size. Videos that do not signal 3D are not touched,
+    except by the name tag and the shape rule above.
+
+``--video-stereo-input=<no|mono|mode>``
+    The user's choice of the packing of the video, before everything the
+    stream says (default: ``no``, no choice). ``mono`` says the video is not
+    3D, ``sbsl``, ``sbs2l``, ``abl``, ``ab2l`` and the right eye first forms
+    (``--vf=format:stereo-in=help`` lists them) say its packing, full or half
+    size views.
+
+``--video-stereo-swap=<yes|no>``
+    Swap the eyes of whatever packing was decided (default: no).
+    It is combined with ``--video-stereo-swap-file``: a video already stored
+    as swapped is shown right again when this is set.
+
+``--video-stereo-swap-file=<yes|no>``
+    Set by mpv when a local file is loaded, from the file's extended attribute
+    ``user.stereo-policy.swap-eyes`` (the stereo policy library's correction
+    for a file whose eyes are the wrong way round). Not meant to be set by hand.
 
 ``--frames=<number>``
     Play/convert only first ``<number>`` video frames, then quit.
