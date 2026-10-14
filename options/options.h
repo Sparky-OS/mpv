@@ -424,6 +424,9 @@ struct cuda_opts {
 struct filter_opts {
     bool video_stereo;
     char *video_stereo_name;
+    int video_stereo_input;
+    bool video_stereo_swap;
+    bool video_stereo_swap_file;
     int deinterlace;
     int field_parity;
 };

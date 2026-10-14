@@ -61,6 +61,10 @@
 #include "core.h"
 #include "command.h"
 
+#if HAVE_STEREO_POLICY
+#include <stereo-policy.h>
+#endif
+
 // Called from the demuxer thread if a new packet is available, or other changes.
 static void wakeup_demux(void *pctx)
 {
@@ -1687,6 +1691,13 @@ static void play_current_file(struct MPContext *mpctx)
     // the file name carries the 3D tag of a video that says nothing (--video-stereo)
     m_config_set_option_cli(mpctx->mconfig, bstr0("video-stereo-name"),
                             bstr0(mp_basename(mpctx->filename)), 0);
+#if HAVE_STEREO_POLICY
+    // the user's correction stored with a local file (user.stereo-policy.swap-eyes)
+    bool stored_swap = !mp_is_url(bstr0(mpctx->filename)) &&
+                       stereo_policy_file_swap_eyes(mpctx->filename) == 1;
+    m_config_set_option_cli(mpctx->mconfig, bstr0("video-stereo-swap-file"),
+                            bstr0(stored_swap ? "yes" : "no"), 0);
+#endif
 
     mpctx->add_osd_seek_info &= OSD_SEEK_INFO_CURRENT_FILE;
 
