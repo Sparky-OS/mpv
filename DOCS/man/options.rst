@@ -1871,6 +1871,11 @@ Video
     ``--video-stereo=no``. A video is never taken for a picture with its depth
     by its shape: only a mark or the user's choice says so.
 
+    The choices below take effect at once while a picture packed with its
+    depth or a depth layer plays; for a depth stream of its own, from the next
+    file (a ``--lavfi-complex`` graph changed while playing ended the playback
+    of the test files, in mpv 0.41.0 as well).
+
 ``--video-depth-view=<left|center>``
     The picture is the left eye and the right eye is drawn (``left``, the
     default), or the picture is the middle and both eyes are drawn

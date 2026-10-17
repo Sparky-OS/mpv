@@ -624,7 +624,8 @@ static void stereo_process(struct mp_filter *f)
 
     struct mp_image *img = frame.data;
 
-    m_config_cache_update(p->opts);
+    // a change of the user's choices while the views are drawn from a depth map draws them again with the new ones
+    bool changed = m_config_cache_update(p->opts);
     struct filter_opts *fopts = p->opts->opts;
     int packing = stereo_packing(p, fopts, fopts->video_stereo_name, img);
     struct filter_opts *opts = p->opts->opts;
@@ -656,7 +657,7 @@ static void stereo_process(struct mp_filter *f)
                     sinfo->stereo_declared(sinfo);
 
     if (img->imgfmt != p->prev_imgfmt || packing != p->prev_stereo3d ||
-        declared != p->prev_declared || (p->sub.filter && !wanted))
+        declared != p->prev_declared || (p->sub.filter && !wanted) || (changed && depth))
     {
         p->prev_imgfmt = img->imgfmt;
         p->prev_stereo3d = packing;
