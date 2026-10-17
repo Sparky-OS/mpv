@@ -128,6 +128,10 @@ typedef struct mp_image {
     // Other side data we don't care about.
     struct mp_ff_side_data *ff_side_data;
     int num_ff_side_data;
+    // The depth map that comes with the picture as an image of its own (an auxiliary layer of the stream), if any
+    struct mp_image *depth;
+    // What a depth sample means, the Stereo3DDepth text of Sparky Stereo OS's depth marks, when the container says it
+    struct AVBufferRef *depth_mark;
 } mp_image_t;
 
 struct mp_ff_side_data {
