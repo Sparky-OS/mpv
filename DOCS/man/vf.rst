@@ -121,6 +121,26 @@ With filters that support it, you can access parameters by their name.
 
 Available mpv-only filters are:
 
+``dibr=packing=<value>:view=<value>:...``
+    Draws the two views of a picture with its depth map into full side by
+    side, both views at the picture's size, the left eye first, through
+    libstereo-dibr; ``--video-depth`` inserts it on its own. The options are
+    those of ``--video-depth``, with the same values and defaults:
+
+    ``<packing>``
+        ``auto`` (the default: the frame's own depth layout, or the depth
+        image that comes with the frame), or a depth layout of
+        ``--video-stereo-input``, ``depth-separate`` being the frame with the
+        depth image that comes with it.
+
+    ``<view>``, ``<warp>``, ``<fill>``, ``<smooth>``, ``<sigma-h>``, ``<sigma-v>``, ``<radius>``
+        As ``--video-depth-view`` to ``--video-depth-radius``.
+
+    ``<range>``, ``<zero>``, ``<shift>``, ``<meaning>``, ``<near>``, ``<far>``, ``<mark>``
+        As ``--video-depth-range`` to ``--video-depth-mark``.
+
+    A frame without a depth layout or a depth image passes unchanged.
+
 ``format=fmt=<value>:colormatrix=<value>:...``
     Applies video parameter overrides, with optional conversion. By default,
     this overrides the video's parameters without conversion (except for the

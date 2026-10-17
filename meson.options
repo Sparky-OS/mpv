@@ -31,6 +31,7 @@ option('rubberband', type: 'feature', value: 'auto', description: 'librubberband
 option('sdl2-gamepad', type: 'feature', value: 'disabled', description: 'SDL2 gamepad input')
 option('stereo-declare', type: 'feature', value: 'auto', description: 'KWin stereo declaration')
 option('stereo-policy', type: 'feature', value: 'auto', description: 'the stereo policy of 3D video (libstereo-policy)')
+option('stereo-dibr', type: 'feature', value: 'auto', description: 'views drawn from a picture with its depth map (libstereo-dibr)')
 option('uchardet', type: 'feature', value: 'auto', description: 'uchardet support')
 option('uwp', type: 'feature', value: 'disabled', description: 'Universal Windows Platform')
 option('vapoursynth', type: 'feature', value: 'auto', description: 'VapourSynth filter bridge')

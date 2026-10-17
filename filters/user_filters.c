@@ -103,6 +103,9 @@ const struct mp_user_filter_entry *vf_list[] = {
 #if (HAVE_GL && HAVE_EGL) || HAVE_VULKAN
     &vf_gpu,
 #endif
+#if HAVE_STEREO_DIBR
+    &vf_dibr,
+#endif
 };
 
 static bool get_vf_desc(struct m_obj_desc *dst, int index)

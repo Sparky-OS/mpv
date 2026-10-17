@@ -370,6 +370,18 @@ if features['stereo-policy']
     dependencies += stereo_policy
 endif
 
+# depth-image-based rendering of a picture with its depth map (vf_dibr); stereo_dibr_unpack() came with version 1.9
+stereo_dibr = dependency('stereo-dibr', required: get_option('stereo-dibr'))
+features += {'stereo-dibr': stereo_dibr.found() and
+             cc.has_function('stereo_dibr_unpack', dependencies: stereo_dibr)}
+if features['stereo-dibr']
+    dependencies += stereo_dibr
+endif
+
+# the depth side data of FFmpeg's depth auxiliary layers and streams (Sparky Stereo OS's FFmpeg)
+features += {'av-depth': cc.has_header_symbol('libavutil/frame.h', 'AV_FRAME_DATA_AUXILIARY_ID',
+                                              dependencies: libavutil)}
+
 # C11 atomics are mandatory but linking to the library is not always required.
 dependencies += cc.find_library('atomic', required: false)
 
@@ -783,6 +795,10 @@ features += {'vapoursynth': vapoursynth.found() and vapoursynth_script.found()}
 if features['vapoursynth']
     dependencies += [vapoursynth, vapoursynth_script]
     sources += files('video/filter/vf_vapoursynth.c')
+endif
+
+if features['stereo-dibr']
+    sources += files('video/filter/vf_dibr.c')
 endif
 
 xfixes = dependency('xfixes', version: '>= 1.0.0', required: get_option('x11-clipboard'))
