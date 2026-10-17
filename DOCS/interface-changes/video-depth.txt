@@ -1,0 +1,2 @@
+add `--video-depth`, `--video-depth-view`, `--video-depth-warp`, `--video-depth-fill`, `--video-depth-smooth`, `--video-depth-sigma-h`, `--video-depth-sigma-v`, `--video-depth-radius`, `--video-depth-range`, `--video-depth-zero`, `--video-depth-shift`, `--video-depth-meaning`, `--video-depth-near`, `--video-depth-far` and `--video-depth-mark` options
+add the depth layouts `depth-sbs`, `depth-sbs-depth-first`, `depth-ab`, `depth-ab-depth-first`, `depth-graphics`, `depth-background` and `depth-separate` to `--video-stereo-input` and `--vf=format:stereo-in`

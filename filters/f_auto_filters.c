@@ -7,6 +7,9 @@
 #include "options/m_config.h"
 #include "options/options.h"
 #include "video/filter/refqueue.h"
+#if HAVE_STEREO_DIBR
+#include "video/filter/vf_dibr.h"
+#endif
 #include "video/mp_image.h"
 #include "video/mp_image_pool.h"
 
@@ -351,7 +354,18 @@ struct stereo_priv {
     struct m_config_cache *opts;
     bool halves_done;
     int halves;
+    bool warned_mark;
 };
+
+// The Stereo3DLayout word of a depth mode (stereo_policy_read_mark() reads it)
+static const char *stereo_depth_mark(int mode)
+{
+    static const char *const words[] = {
+        "depthSideBySidePictureFirst", "depthSideBySideDepthFirst", "depthTopBottomPictureFirst",
+        "depthTopBottomDepthFirst", "depthGraphicsTopBottom", "depthBackgroundQuarters", "depthSeparate",
+    };
+    return mp_stereo3d_is_depth(mode) ? words[mode - MP_STEREO3D_DEPTH_SBS] : NULL;
+}
 
 static const char *stereo_input_name(int mode)
 {
@@ -396,6 +410,14 @@ static int stereo_halves(struct stereo_priv *p, const struct mp_image *img)
 // for a mode that is neither side by side nor top and bottom (interleaved, checkerboard, alternating, anaglyph).
 static bool stereo_user_mode(int mode, int *layout, int *order, bool *full)
 {
+    // a picture with its depth map packed in one frame (the policy's depth layouts, in the order of the modes)
+    if (mp_stereo3d_is_depth(mode) && mode != MP_STEREO3D_DEPTH_SEPARATE) {
+        const int n = mode - MP_STEREO3D_DEPTH_SBS;
+        *layout = n < 4 ? STEREO_POLICY_LAYOUT_DEPTH_SIDE_BY_SIDE + n / 2 : STEREO_POLICY_LAYOUT_DEPTH_GRAPHICS + n - 4;
+        *order = n < 4 && (n & 1) ? STEREO_POLICY_DEPTH_FIRST : STEREO_POLICY_PICTURE_FIRST;
+        *full = true;
+        return true;
+    }
     switch (mode) {
     case MP_STEREO3D_SBS2L: case MP_STEREO3D_SBS2R: case MP_STEREO3D_SBSL: case MP_STEREO3D_SBSR:
         *layout = STEREO_POLICY_LAYOUT_SIDE_BY_SIDE;
@@ -428,6 +450,21 @@ static int stereo_swapped(int mode)
     }
 }
 
+// The mode of a depth layout of the policy (STEREO_POLICY_LAYOUT_DEPTH_*), or -1 for another layout
+static int stereo_depth_mode(int layout, int order)
+{
+    switch (layout) {
+    case STEREO_POLICY_LAYOUT_DEPTH_SIDE_BY_SIDE:
+        return order == STEREO_POLICY_DEPTH_FIRST ? MP_STEREO3D_DEPTH_SBS_DF : MP_STEREO3D_DEPTH_SBS;
+    case STEREO_POLICY_LAYOUT_DEPTH_TOP_AND_BOTTOM:
+        return order == STEREO_POLICY_DEPTH_FIRST ? MP_STEREO3D_DEPTH_AB_DF : MP_STEREO3D_DEPTH_AB;
+    case STEREO_POLICY_LAYOUT_DEPTH_GRAPHICS: return MP_STEREO3D_DEPTH_GRAPHICS;
+    case STEREO_POLICY_LAYOUT_DEPTH_BACKGROUND: return MP_STEREO3D_DEPTH_BACKGROUND;
+    case STEREO_POLICY_LAYOUT_DEPTH_SEPARATE: return MP_STEREO3D_DEPTH_SEPARATE;
+    default: return -1;
+    }
+}
+
 static int stereo_packing(struct stereo_priv *p, const struct filter_opts *opts, const char *name,
                           const struct mp_image *img)
 {
@@ -447,9 +484,15 @@ static int stereo_packing(struct stereo_priv *p, const struct filter_opts *opts,
 
     const char *mark = NULL;
     bool full_by_mode = false;
-    switch (ip->stereo3d) {
+    // a depth map that comes as an image of its own marks the picture as depthSeparate, unless a packing says more
+    int stream_mode = img->depth && !mp_stereo3d_is_depth(ip->stereo3d) ? MP_STEREO3D_DEPTH_SEPARATE : ip->stereo3d;
+    switch (stream_mode) {
     case MP_STEREO3D_MONO:
         mark = ip->stereo3d_marked ? "mono" : NULL;
+        break;
+    case MP_STEREO3D_DEPTH_SBS: case MP_STEREO3D_DEPTH_SBS_DF: case MP_STEREO3D_DEPTH_AB: case MP_STEREO3D_DEPTH_AB_DF:
+    case MP_STEREO3D_DEPTH_GRAPHICS: case MP_STEREO3D_DEPTH_BACKGROUND: case MP_STEREO3D_DEPTH_SEPARATE:
+        mark = stereo_depth_mark(stream_mode);
         break;
     case MP_STEREO3D_SBS2L: mark = "sideBySideLeftFirst"; break;
     case MP_STEREO3D_SBS2R: mark = "sideBySideRightFirst"; break;
@@ -479,6 +522,9 @@ static int stereo_packing(struct stereo_priv *p, const struct filter_opts *opts,
     if (stereo_policy_video_layout_named(dw, dh, mark, name, halves, user_layout, user_order, swap, &layout, &order,
                                          &source, &views) < 0)
         return ip->stereo3d;
+    int depth_mode = stereo_depth_mode(layout, order);
+    if (depth_mode >= 0)
+        return depth_mode != MP_STEREO3D_DEPTH_SEPARATE || img->depth ? depth_mode : MP_STEREO3D_MONO;
     if (layout != STEREO_POLICY_LAYOUT_SIDE_BY_SIDE && layout != STEREO_POLICY_LAYOUT_TOP_AND_BOTTOM)
         return MP_STEREO3D_MONO;
 
@@ -507,7 +553,9 @@ static int stereo_packing(struct stereo_priv *p, const struct filter_opts *opts,
 static int stereo_packing(struct stereo_priv *p, const struct filter_opts *opts, const char *name,
                           const struct mp_image *img)
 {
-    return img->params.stereo3d;
+    if (opts->video_stereo_input >= 0)
+        return opts->video_stereo_input;
+    return img->depth && !mp_stereo3d_is_depth(img->params.stereo3d) ? MP_STEREO3D_DEPTH_SEPARATE : img->params.stereo3d;
 }
 #endif
 
@@ -531,7 +579,26 @@ static double stereo_view_aspect(const struct mp_image *img, int packing)
     switch (packing) {
     case MP_STEREO3D_SBSL: case MP_STEREO3D_SBSR: return pair / 2;
     case MP_STEREO3D_ABL: case MP_STEREO3D_ABR: return pair * 2;
-    default: return pair;
+    // the picture of a frame packed with its depth: one half, one row of four, one quarter
+    case MP_STEREO3D_DEPTH_SBS: case MP_STEREO3D_DEPTH_SBS_DF: return pair / 2;
+    case MP_STEREO3D_DEPTH_AB: case MP_STEREO3D_DEPTH_AB_DF: return pair * 2;
+    case MP_STEREO3D_DEPTH_GRAPHICS: return pair * 4;
+    default: return pair; // the background quarters keep the frame's shape; depthSeparate is the picture
+    }
+}
+
+// The picture of a frame packed with its depth map, for a 2D view of it
+static struct mp_rect stereo_depth_picture(const struct mp_image *img, int packing)
+{
+    int w = img->w, h = img->h;
+    switch (packing) {
+    case MP_STEREO3D_DEPTH_SBS: return (struct mp_rect){0, 0, w / 2, h};
+    case MP_STEREO3D_DEPTH_SBS_DF: return (struct mp_rect){w / 2, 0, w / 2 * 2, h};
+    case MP_STEREO3D_DEPTH_AB: return (struct mp_rect){0, 0, w, h / 2};
+    case MP_STEREO3D_DEPTH_AB_DF: return (struct mp_rect){0, h / 2, w, h / 2 * 2};
+    case MP_STEREO3D_DEPTH_GRAPHICS: return (struct mp_rect){0, 0, w, h / 4};
+    case MP_STEREO3D_DEPTH_BACKGROUND: return (struct mp_rect){0, 0, w / 2, h / 2};
+    default: return (struct mp_rect){0, 0, w, h};
     }
 }
 
@@ -560,8 +627,28 @@ static void stereo_process(struct mp_filter *f)
     m_config_cache_update(p->opts);
     struct filter_opts *fopts = p->opts->opts;
     int packing = stereo_packing(p, fopts, fopts->video_stereo_name, img);
-    const char *input = stereo_input_name(packing);
     struct filter_opts *opts = p->opts->opts;
+    // A picture with its depth map: its views are drawn (vf_dibr), else only the picture is shown
+    bool depth = mp_stereo3d_is_depth(packing);
+    bool alone = depth && !(opts->video_stereo && opts->video_depth && HAVE_STEREO_DIBR);
+#if HAVE_STEREO_DIBR
+    // a malformed Stereo3DDepth mark means one picture (docs/depth-marks.md, rule 1)
+    if (depth && !alone && mp_dibr_malformed(img, opts->video_depth_mark, opts->video_depth_meaning)) {
+        if (!p->warned_mark)
+            MP_WARN(f, "Malformed Stereo3DDepth mark: the picture is shown alone.\n");
+        p->warned_mark = true;
+        alone = true;
+    }
+#endif
+    if (alone) {
+        if (packing != MP_STEREO3D_DEPTH_SEPARATE) {
+            img->params.crop = stereo_depth_picture(img, packing);
+            img->params.stereo3d = MP_STEREO3D_MONO;
+        }
+        packing = MP_STEREO3D_MONO;
+        depth = false;
+    }
+    const char *input = depth ? stereo_depth_mark(packing) : stereo_input_name(packing);
     bool wanted = opts->video_stereo && input;
     // The display size of one view is set only once the compositor accepted the declaration
     struct mp_stream_info *sinfo = mp_filter_find_stream_info(f);
@@ -591,7 +678,18 @@ static void stereo_process(struct mp_filter *f)
         struct mp_autoconvert *conv = mp_autoconvert_create(subf);
         if (conv) {
             filters[0] = conv->f;
-            mp_autoconvert_add_all_sw_imgfmts(conv);
+#if HAVE_STEREO_DIBR
+            if (depth) {
+                // the formats the views can be drawn in, a picture with its depth map being of any
+                for (int fmt = IMGFMT_START; fmt < IMGFMT_END; fmt++) {
+                    if (mp_dibr_accepts(fmt))
+                        mp_autoconvert_add_imgfmt(conv, fmt, 0);
+                }
+            } else
+#endif
+            {
+                mp_autoconvert_add_all_sw_imgfmts(conv);
+            }
 
             if (!mp_autoconvert_probe_input_video(conv, img)) {
                 MP_ERR(f, "no stereo3d filter available for format %s\n",
@@ -602,9 +700,46 @@ static void stereo_process(struct mp_filter *f)
             }
         }
 
-        char *args[] = {"in", (char *)input, "out", "sbsl", NULL};
-        filters[1] = mp_create_user_filter(subf, MP_OUTPUT_CHAIN_VIDEO,
-                                           "stereo3d", args);
+        if (depth) {
+            // The views drawn from the depth map with the user's choices, the right eye then put first when the user
+            // swaps the eyes
+            char *args[] = {
+                "packing", (char *)MP_STEREO3D_NAME_DEF(packing, "auto"),
+                "view", (char *)m_opt_choice_str(mp_depth_view_names, opts->video_depth_view),
+                "warp", (char *)m_opt_choice_str(mp_depth_warp_names, opts->video_depth_warp),
+                "fill", (char *)m_opt_choice_str(mp_depth_fill_names, opts->video_depth_fill),
+                "smooth", (char *)m_opt_choice_str(mp_depth_smooth_names, opts->video_depth_smooth),
+                "sigma-h", mp_tprintf(32, "%f", opts->video_depth_sigma_h),
+                "sigma-v", mp_tprintf(32, "%f", opts->video_depth_sigma_v),
+                "radius", mp_tprintf(32, "%d", opts->video_depth_radius),
+                "range", mp_tprintf(32, "%f", opts->video_depth_range),
+                "zero", mp_tprintf(32, "%f", opts->video_depth_zero),
+                "shift", mp_tprintf(32, "%f", opts->video_depth_shift),
+                "meaning", (char *)m_opt_choice_str(mp_depth_meaning_names, opts->video_depth_meaning),
+                "near", mp_tprintf(32, "%f", opts->video_depth_near),
+                "far", mp_tprintf(32, "%f", opts->video_depth_far),
+                "mark", opts->video_depth_mark ? opts->video_depth_mark : "",
+                NULL,
+            };
+            if (opts->video_stereo_swap != opts->video_stereo_swap_file) {
+                char *swap_args[] = {"in", "sbsr", "out", "sbsl", NULL};
+                struct mp_filter *both = mp_bidir_dummy_filter_create(subf);
+                struct mp_filter *chain[2] = {
+                    mp_create_user_filter(both, MP_OUTPUT_CHAIN_VIDEO, "dibr", args),
+                    mp_create_user_filter(both, MP_OUTPUT_CHAIN_VIDEO, "stereo3d", swap_args),
+                };
+                if (chain[0] && chain[1]) {
+                    mp_chain_filters(both->ppins[0], both->ppins[1], chain, 2);
+                    filters[1] = both;
+                }
+            } else {
+                filters[1] = mp_create_user_filter(subf, MP_OUTPUT_CHAIN_VIDEO, "dibr", args);
+            }
+        } else {
+            char *args[] = {"in", (char *)input, "out", "sbsl", NULL};
+            filters[1] = mp_create_user_filter(subf, MP_OUTPUT_CHAIN_VIDEO,
+                                               "stereo3d", args);
+        }
         // The display shape of the views: the window shows one view, the display size of one view, but only where the
         // declaration was accepted: otherwise the compositor shows the frame as it is, and nothing here pretends it is
         // a single view. A container that gives the size of one plane (Matroska) says the shape of a view, which the

@@ -1823,7 +1823,13 @@ Video
     stream says (default: ``no``, no choice). ``mono`` says the video is not
     3D, ``sbsl``, ``sbs2l``, ``abl``, ``ab2l`` and the right eye first forms
     (``--vf=format:stereo-in=help`` lists them) say its packing, full or half
-    size views.
+    size views. The depth layouts say that the frame packs a picture with its
+    depth map (see ``--video-depth``): ``depth-sbs`` and
+    ``depth-sbs-depth-first`` (side by side, the picture or the depth first),
+    ``depth-ab`` and ``depth-ab-depth-first`` (top and bottom),
+    ``depth-graphics`` (the picture, its depth, graphics and their depth, from
+    the top) and ``depth-background`` (the picture and its depth over a
+    background picture and its depth, in quarters).
 
 ``--video-stereo-swap=<yes|no>``
     Swap the eyes of whatever packing was decided (default: no).
@@ -1834,6 +1840,105 @@ Video
     Set by mpv when a local file is loaded, from the file's extended attribute
     ``user.stereo-policy.swap-eyes`` (the stereo policy library's correction
     for a file whose eyes are the wrong way round). Not meant to be set by hand.
+
+``--video-depth=<yes|no>``
+    Draw the two views of a video that comes with its depth map (2D plus
+    depth) into full side by side, both views at the picture's size, the left
+    eye first, as ``--video-stereo`` hands on any stereo video (default: yes).
+    libstereo-dibr draws them, the depth-image-based rendering that the
+    edition's players, FFmpeg and the desktop share. The depth map comes:
+
+    - packed with the picture in one frame, in a depth layout of the stereo
+      depth marks (stereo-layer's ``docs/depth-marks.md``), which a Matroska
+      track carries as its ``STEREO3D_LAYOUT`` tag until the layouts are
+      registered as ``StereoMode`` values, or which ``--video-stereo-input``
+      chooses;
+    - as the depth auxiliary layer of an H.265 stream (``AuxId`` 2, H.265
+      Table F.2), decoded with the pictures; software decoding only, since no
+      hardware decoder outputs the layer;
+    - as a stream of its own: an ISO/IEC 23002-3 auxiliary video stream
+      (MPEG-2 transport stream type 0x1E) or an MP4 auxiliary depth track,
+      drawn by FFmpeg's ``dibr`` filter in a ``--lavfi-complex`` graph that
+      mpv makes when the user gave none.
+
+    What a depth sample means comes from the depth map's side data (the depth
+    representation information SEI of H.264, H.13.2.3, and H.265, G.14.3.4;
+    the supplemental information of an ISO/IEC 23002-3 stream), else from the
+    track's ``STEREO3D_DEPTH`` tag (a ``Stereo3DDepth`` mark), else larger
+    samples are nearer. ``--video-depth-meaning`` and ``--video-depth-mark``
+    choose instead. A malformed mark, the user's or the file's, means one
+    picture: the picture is shown alone, as it is with ``no`` or with
+    ``--video-stereo=no``. A video is never taken for a picture with its depth
+    by its shape: only a mark or the user's choice says so.
+
+``--video-depth-view=<left|center>``
+    The picture is the left eye and the right eye is drawn (``left``, the
+    default), or the picture is the middle and both eyes are drawn
+    (``center``).
+
+``--video-depth-warp=<forward|backward|layered>``
+    How the picture is warped: ``forward`` (the default) splats the picture
+    into each view, ``backward`` warps the depth first and then samples the
+    picture for each pixel of the view, ``layered`` draws a boundary layer
+    over the main layer.
+
+``--video-depth-fill=<background|depth|telea|none>``
+    How the disocclusions are filled: by extending the background
+    (``background``, the default), from background pixels only (``depth``),
+    by Telea's inpainting from the background side (``telea``), or not at all,
+    left black (``none``).
+
+``--video-depth-smooth=<off|gaussian>``
+    Smooth the depth map before warping with an asymmetric Gaussian
+    (``gaussian``), or not (``off``, the default).
+
+``--video-depth-sigma-h=<0-1000>``, ``--video-depth-sigma-v=<0-1000>``
+    The horizontal and vertical standard deviations of the smoothing, in
+    pixels of a view 1920 wide (defaults: 10 and 30).
+
+``--video-depth-radius=<1-100>``
+    The neighbourhood of the ``depth`` and ``telea`` fills, in pixels
+    (default: 5).
+
+``--video-depth-range=<pixels>``
+    For depth without absolute values, the largest parallax either side of
+    the screen, in pixels of a view 1920 wide (default: 58, about one degree
+    of visual angle for a viewer three picture heights away).
+
+``--video-depth-zero=<0-1>``
+    For depth without absolute values, where the screen is, from the farthest
+    samples (0) to the nearest (1) (default: 0.5). An ISO/IEC 23002-3 depth
+    map puts it where its kfar gives way to its knear.
+
+``--video-depth-shift=<pixels>``
+    A parallax added to every point, in pixels of a view 1920 wide, which
+    moves the whole scene behind the screen (positive) or in front of it
+    (default: 0).
+
+``--video-depth-meaning=<auto|nearness|farness|inverse-z|disparity|z|nonlinear|parallax|range-linear|range-inverse|metric>``
+    What a depth sample means, before what the stream says (default:
+    ``auto``, what the stream says). ``nearness``: larger samples nearer
+    (2D-plus-depth); ``farness``: larger samples farther; ``inverse-z``,
+    ``disparity``, ``z`` and ``nonlinear``: the depth representation types 0
+    to 3 (H.265 Table G.3); ``parallax``: an ISO/IEC 23002-3 parallax map;
+    ``range-linear`` and ``range-inverse``: the depth map formats of Google's
+    Dynamic Depth 1.0, uniform in distance or in its inverse from
+    ``--video-depth-near`` to ``--video-depth-far``; ``metric``: a depth
+    sensor's distances, a sample of 0 being no measurement.
+
+``--video-depth-near=<distance>``, ``--video-depth-far=<distance>``
+    ZNear and ZFar of ``z`` depth that carries none, Near and Far of
+    ``range-linear`` depth, and the distances between which the inverse of
+    ``metric`` depth is spread, in the sensor's unit. Used when both are set.
+
+``--video-depth-mark=<mark>``
+    What a depth sample means as a ``Stereo3DDepth`` mark (stereo-layer's
+    ``docs/depth-marks.md``): a word for the kind, then ``key=value`` pairs
+    separated by spaces, for example ``inverseZ near=0.25 far=10`` or
+    ``nonlinearDisparity min=2 max=40 width=1920 model=0,20,7,0``. It gives
+    every parameter of every kind, and comes before ``--video-depth-meaning``
+    and everything the stream says; ``--video-depth-range``,
+    ``--video-depth-zero`` and ``--video-depth-shift`` apply where it has none.
 
 ``--frames=<number>``
     Play/convert only first ``<number>`` video frames, then quit.
