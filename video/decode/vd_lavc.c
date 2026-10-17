@@ -228,6 +228,11 @@ typedef struct lavc_ctx {
     int num_delay_queue;
     int max_delay_queue;
 
+    // The stream's depth auxiliary layer (H.265 AuxId 2) is decoded: each depth picture goes with its picture
+    bool depth_output;
+    bool depth_probe; // not known yet whether the stream has the layer: the first picture waits for the next one
+    bool depth_layer; // a depth picture came: a picture waits in the queue for its own
+
     // From VO
     struct vo *vo;
     struct mp_hwdec_devices *hwdec_devs;
@@ -834,6 +839,18 @@ static void init_avctx(struct mp_filter *vd)
         break;
     }
 
+    // A depth auxiliary layer (H.265 AuxId 2, FFmpeg's depth_output) is decoded with the pictures, for --video-depth,
+    // in software only: the depth layer is not a hardware decoder's
+    ctx->depth_output = false;
+    ctx->depth_probe = false;
+    ctx->depth_layer = false;
+    if (HAVE_AV_DEPTH && lavc_codec->id == AV_CODEC_ID_HEVC && !ctx->use_hwdec) {
+        struct filter_opts *fopts = mp_get_config_group(ctx, vd->global, &filter_conf);
+        if (fopts->video_depth && av_opt_set(avctx, "depth_output", "both", AV_OPT_SEARCH_CHILDREN) >= 0)
+            ctx->depth_output = ctx->depth_probe = true;
+        talloc_free(fopts);
+    }
+
     mp_set_avopts(vd->log, avctx, lavc_param->avopts);
 
     // Do this after the above avopt handling in case it changes values
@@ -1270,7 +1287,32 @@ static int decode_frame(struct mp_filter *vd)
     mpi->dts = mp_pts_from_av(ctx->pic->pkt_dts, &ctx->codec_timebase);
     mpi->pkt_duration = mp_pts_from_av(ctx->pic->duration, &ctx->codec_timebase);
 
+    // A depth picture (AuxId 2) comes right after its picture: it goes with it, and from then on each picture waits
+    // in the queue for its depth picture
+#if HAVE_AV_DEPTH
+    bool aux = ctx->depth_output && av_frame_get_side_data(ctx->pic, AV_FRAME_DATA_AUXILIARY_ID);
+#else
+    bool aux = false;
+#endif
     av_frame_unref(ctx->pic);
+    if (aux) {
+        struct mp_image *picture = ctx->num_delay_queue ? ctx->delay_queue[ctx->num_delay_queue - 1] : NULL;
+        if (picture && !picture->depth && picture->pts == mpi->pts) {
+            picture->depth = mpi;
+        } else {
+            MP_VERBOSE(vd, "Depth picture without its picture, dropped.\n");
+            talloc_free(mpi);
+        }
+        if (!ctx->depth_layer) {
+            ctx->depth_layer = true;
+            ctx->depth_probe = false;
+            ctx->max_delay_queue += 1;
+        }
+        return ret;
+    }
+    // a second picture with no depth picture between: the stream has no depth layer
+    if (ctx->depth_probe && ctx->num_delay_queue && !ctx->delay_queue[ctx->num_delay_queue - 1]->depth)
+        ctx->depth_probe = false;
 
     MP_TARRAY_APPEND(ctx, ctx->delay_queue, ctx->num_delay_queue, mpi);
     return ret;
@@ -1312,7 +1354,7 @@ static int receive_frame(struct mp_filter *vd, struct mp_frame *out_frame)
     if (ret == AVERROR(EAGAIN) && ctx->num_requeue_packets)
         return 0; // force retry, so send_queued_packet() gets called
 
-    if (ctx->num_delay_queue <= ctx->max_delay_queue && ret != AVERROR_EOF)
+    if (ctx->num_delay_queue <= ctx->max_delay_queue + ctx->depth_probe && ret != AVERROR_EOF)
         return ret;
 
     if (!ctx->num_delay_queue)
