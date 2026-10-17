@@ -1169,6 +1169,29 @@ struct mp_image *mp_image_from_av_frame(struct AVFrame *src)
 #endif
     }
 
+    // A filter that packs views of its own (the dibr filter draws two from a picture and its depth map) leaves its
+    // STEREO3D mark on the frame, which then says more than the params of the frame that entered the filter; views
+    // as large as that frame are full size
+    sd = av_frame_get_side_data(src, AV_FRAME_DATA_STEREO3D);
+    if (sd && src->opaque_ref) {
+        const struct mp_image_params *p = (void *)src->opaque_ref->data;
+        int mode = mp_stereo3d_from_av((const AVStereo3D *)sd->data);
+        int now[2], before[2];
+        mp_get_3d_side_by_side(mode, now);
+        mp_get_3d_side_by_side(p->stereo3d, before);
+        if (mode != MP_STEREO3D_MONO &&
+            (p->stereo3d == MP_STEREO3D_MONO || now[0] != before[0] || now[1] != before[1]))
+        {
+            if (now[0] == 2 && src->width == 2 * p->w && src->height == p->h)
+                mode = mode == MP_STEREO3D_SBS2R ? MP_STEREO3D_SBSR : MP_STEREO3D_SBSL;
+            if (now[1] == 2 && src->height == 2 * p->h && src->width == p->w)
+                mode = mode == MP_STEREO3D_AB2R ? MP_STEREO3D_ABR : MP_STEREO3D_ABL;
+            dst->params.stereo3d = mode;
+            dst->params.stereo3d_marked = true;
+            dst->params.stereo3d_plane_w = dst->params.stereo3d_plane_h = 0;
+        }
+    }
+
 #if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(60, 11, 100) && PL_API_VER >= 356
     // mp_image_setfmt sets to PL_ALPHA_INDEPENDENT, if format has alpha.
     if (dst->params.repr.alpha == PL_ALPHA_INDEPENDENT)
