@@ -68,8 +68,31 @@ enum mp_stereo3d_mode {
     MP_STEREO3D_SBSR = 16,
     MP_STEREO3D_ABL = 17,
     MP_STEREO3D_ABR = 18,
-    MP_STEREO3D_COUNT = 19, // 18 is last valid mode
+    // A picture with its depth map in one frame, the depth layouts of Sparky Stereo OS's depth marks (stereo-layer,
+    // docs/depth-marks.md), from which the views are drawn (depth-image-based rendering, vf_dibr)
+    MP_STEREO3D_DEPTH_SBS = 19,        // depthSideBySidePictureFirst
+    MP_STEREO3D_DEPTH_SBS_DF = 20,     // depthSideBySideDepthFirst
+    MP_STEREO3D_DEPTH_AB = 21,         // depthTopBottomPictureFirst (HDMI 1.4a "L + depth")
+    MP_STEREO3D_DEPTH_AB_DF = 22,      // depthTopBottomDepthFirst
+    MP_STEREO3D_DEPTH_GRAPHICS = 23,   // depthGraphicsTopBottom (HDMI 1.4a "L + depth + graphics + graphics-depth")
+    MP_STEREO3D_DEPTH_BACKGROUND = 24, // depthBackgroundQuarters
+    // The picture alone, its depth map an image of its own (mp_image.depth)
+    MP_STEREO3D_DEPTH_SEPARATE = 25,   // depthSeparate
+    MP_STEREO3D_COUNT = 26, // 25 is last valid mode
 };
+
+// The ways of drawing views from a picture with its depth map (libstereo-dibr), as options
+extern const struct m_opt_choice_alternatives mp_depth_view_names[];
+extern const struct m_opt_choice_alternatives mp_depth_warp_names[];
+extern const struct m_opt_choice_alternatives mp_depth_fill_names[];
+extern const struct m_opt_choice_alternatives mp_depth_smooth_names[];
+extern const struct m_opt_choice_alternatives mp_depth_meaning_names[];
+
+// Whether a mode is one of the depth layouts above
+bool mp_stereo3d_is_depth(int mode);
+
+// The mode of a Stereo3DLayout word of the depth marks (the depth layouts only), or MP_STEREO3D_INVALID
+int mp_stereo3d_from_depth_layout(const char *word);
 
 extern const struct m_opt_choice_alternatives mp_stereo3d_names[];
 

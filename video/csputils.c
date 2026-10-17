@@ -22,10 +22,12 @@
 #include <stdint.h>
 #include <math.h>
 #include <assert.h>
+#include <string.h>
 #include <libavutil/common.h>
 #include <libavutil/stereo3d.h>
 #include <libavcodec/avcodec.h>
 
+#include "common/common.h"
 #include "mp_image.h"
 #include "csputils.h"
 #include "options/m_config.h"
@@ -156,8 +158,62 @@ const struct m_opt_choice_alternatives mp_stereo3d_names[] = {
     {"sbsr",   16}, // full "side_by_side_right"
     {"abl",    17}, // full "top_bottom_left"
     {"abr",    18}, // full "top_bottom_right"
+    {"depth-sbs", 19},              // the picture, then its depth map, side by side
+    {"depth-sbs-depth-first", 20},
+    {"depth-ab", 21},               // the picture above its depth map
+    {"depth-ab-depth-first", 22},
+    {"depth-graphics", 23},         // picture, depth, graphics, graphics depth, from the top
+    {"depth-background", 24},       // picture, depth / background, background depth
+    {"depth-separate", 25},         // the depth map apart
     {0}
 };
+
+// the values of libstereo-dibr's enums (stereo-dibr.h), the names of FFmpeg's dibr filter
+const struct m_opt_choice_alternatives mp_depth_view_names[] = {
+    {"left", 0},   // the picture is the left eye
+    {"center", 1}, // the picture is the middle
+    {0}
+};
+
+const struct m_opt_choice_alternatives mp_depth_warp_names[] = {
+    {"forward", 0}, {"backward", 1}, {"layered", 2},
+    {0}
+};
+
+const struct m_opt_choice_alternatives mp_depth_fill_names[] = {
+    {"background", 0}, {"depth", 1}, {"telea", 2}, {"none", 3},
+    {0}
+};
+
+const struct m_opt_choice_alternatives mp_depth_smooth_names[] = {
+    {"off", 0}, {"gaussian", 1},
+    {0}
+};
+
+// what a depth sample means: auto (the stream's, else nearness) or a kind of Stereo3DDepth
+const struct m_opt_choice_alternatives mp_depth_meaning_names[] = {
+    {"auto", -1}, {"nearness", 0}, {"farness", 1}, {"inverse-z", 2}, {"disparity", 3}, {"z", 4}, {"nonlinear", 5},
+    {"parallax", 6}, {"range-linear", 7}, {"range-inverse", 8}, {"metric", 9},
+    {0}
+};
+
+bool mp_stereo3d_is_depth(int mode)
+{
+    return mode >= MP_STEREO3D_DEPTH_SBS && mode <= MP_STEREO3D_DEPTH_SEPARATE;
+}
+
+int mp_stereo3d_from_depth_layout(const char *word)
+{
+    static const char *const words[] = {
+        "depthSideBySidePictureFirst", "depthSideBySideDepthFirst", "depthTopBottomPictureFirst",
+        "depthTopBottomDepthFirst", "depthGraphicsTopBottom", "depthBackgroundQuarters", "depthSeparate",
+    };
+    for (int n = 0; word && n < MP_ARRAY_SIZE(words); n++) {
+        if (strcmp(word, words[n]) == 0)
+            return MP_STEREO3D_DEPTH_SBS + n;
+    }
+    return MP_STEREO3D_INVALID;
+}
 
 enum mp_stereo3d_mode mp_stereo3d_from_av(const struct AVStereo3D *s3d)
 {
