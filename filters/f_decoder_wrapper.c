@@ -22,6 +22,8 @@
 #include <math.h>
 #include <assert.h>
 
+#include <string.h>
+
 #include <libavutil/buffer.h>
 #include <libavutil/common.h>
 #include <libavutil/rational.h>
@@ -43,6 +45,7 @@
 
 #include "audio/aframe.h"
 #include "video/out/vo.h"
+#include "common/tags.h"
 #include "video/csputils.h"
 
 #include "demux/stheader.h"
@@ -151,6 +154,11 @@ const struct m_sub_options dec_wrapper_conf = {
 struct priv {
     struct mp_log *log;
     struct sh_stream *header;
+
+    // Sparky Stereo OS's depth marks given as the track's tags (stereo-layer, docs/depth-marks.md): the depth layout
+    // of the frames (an MP_STEREO3D_DEPTH_* mode, or -1), and what a depth sample means
+    int depth_layout;
+    AVBufferRef *depth_mark;
 
     // --- The following fields are to be accessed by dec_dispatch (or if that
     //     field is NULL, by the mp_decoder_wrapper user thread).
@@ -610,7 +618,11 @@ static void fix_image_params(struct priv *p,
     if (m.p_w <= 0 || m.p_h <= 0)
         m.p_w = m.p_h = 1;
 
-    if (!m.stereo3d_marked) {
+    if (!m.stereo3d_marked && p->depth_layout >= 0) {
+        // a picture packed with its depth map, as the track's STEREO3D_LAYOUT tag says
+        m.stereo3d = p->depth_layout;
+        m.stereo3d_marked = true;
+    } else if (!m.stereo3d_marked) {
         m.stereo3d = p->codec->stereo_mode;
         m.stereo3d_marked = p->codec->stereo_mode_set;
         m.stereo3d_plane_w = p->codec->stereo_plane_w;
@@ -857,6 +869,10 @@ static void process_output_frame(struct priv *p, struct mp_frame frame)
 
         mpi->params = p->fixed_format;
         mpi->nominal_fps = p->fps;
+        if (p->depth_mark && !mpi->depth_mark) {
+            mpi->depth_mark = av_buffer_ref(p->depth_mark);
+            MP_HANDLE_OOM(mpi->depth_mark);
+        }
     } else if (frame.type == MP_FRAME_AUDIO) {
         struct mp_aframe *aframe = frame.data;
 
@@ -1177,6 +1193,7 @@ static void public_f_destroy(struct mp_filter *f)
     talloc_free(p->dec_root_filter);
     talloc_free(p->queue);
     mp_mutex_destroy(&p->cache_lock);
+    av_buffer_unref(&p->depth_mark);
 }
 
 static const struct mp_filter_info decf_filter = {
@@ -1223,6 +1240,14 @@ struct mp_decoder_wrapper *mp_decoder_wrapper_create(struct mp_filter *parent,
     p->header = src;
     p->codec = p->header->codec;
     p->play_dir = 1;
+
+    p->depth_layout = mp_stereo3d_from_depth_layout(mp_tags_get_str(src->tags, "STEREO3D_LAYOUT"));
+    const char *depth_mark = mp_tags_get_str(src->tags, "STEREO3D_DEPTH");
+    if (depth_mark && depth_mark[0]) {
+        p->depth_mark = av_buffer_alloc(strlen(depth_mark));
+        MP_HANDLE_OOM(p->depth_mark);
+        memcpy(p->depth_mark->data, depth_mark, strlen(depth_mark));
+    }
     mp_filter_add_pin(public_f, MP_PIN_OUT, "out");
 
     if (p->header->type == STREAM_VIDEO) {
