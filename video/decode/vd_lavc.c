@@ -229,6 +229,8 @@ typedef struct lavc_ctx {
     int max_delay_queue;
 
     // The stream's depth auxiliary layer (H.265 AuxId 2) is decoded: each depth picture goes with its picture
+    bool depth_wanted; // --video-depth on an H.265 stream
+    bool depth_software; // the stream has a depth layer: software decoding, which outputs it
     bool depth_output;
     bool depth_probe; // not known yet whether the stream has the layer: the first picture waits for the next one
     bool depth_layer; // a depth picture came: a picture waits in the queue for its own
@@ -509,7 +511,10 @@ static void select_and_set_hwdec(struct mp_filter *vd)
     int num_hwdecs = 0;
     add_all_hwdec_methods(&hwdecs, &num_hwdecs);
 
-    char **hwdec_api = ctx->hwdec_opts->hwdec_api;
+    // a stream whose depth layer is wanted is decoded in software, which outputs the layer
+    char **hwdec_api = ctx->depth_software ? NULL : ctx->hwdec_opts->hwdec_api;
+    if (ctx->depth_software)
+        MP_VERBOSE(vd, "Not using hardware decoding: the depth layer is decoded in software.\n");
     for (int i = 0; hwdec_api && hwdec_api[i]; i++) {
         bstr opt = bstr0(hwdec_api[i]);
 
@@ -694,6 +699,7 @@ static void reinit(struct mp_filter *vd)
     TA_FREEP(&ctx->attempted_hwdecs);
     ctx->num_attempted_hwdecs = 0;
     ctx->hwdec_notified = false;
+    ctx->depth_software = false;
 
     select_and_set_hwdec(vd);
 
@@ -840,16 +846,18 @@ static void init_avctx(struct mp_filter *vd)
     }
 
     // A depth auxiliary layer (H.265 AuxId 2, FFmpeg's depth_output) is decoded with the pictures, for --video-depth,
-    // in software only: the depth layer is not a hardware decoder's
+    // in software only: the depth layer is not a hardware decoder's (get_format_hwdec() turns to software for it)
+    ctx->depth_wanted = false;
     ctx->depth_output = false;
     ctx->depth_probe = false;
     ctx->depth_layer = false;
-    if (HAVE_AV_DEPTH && lavc_codec->id == AV_CODEC_ID_HEVC && !ctx->use_hwdec) {
+    if (HAVE_AV_DEPTH && lavc_codec->id == AV_CODEC_ID_HEVC) {
         struct filter_opts *fopts = mp_get_config_group(ctx, vd->global, &filter_conf);
-        if (fopts->video_depth && av_opt_set(avctx, "depth_output", "both", AV_OPT_SEARCH_CHILDREN) >= 0)
-            ctx->depth_output = ctx->depth_probe = true;
+        ctx->depth_wanted = fopts->video_depth;
         talloc_free(fopts);
     }
+    if (ctx->depth_wanted && !ctx->use_hwdec && av_opt_set(avctx, "depth_output", "both", AV_OPT_SEARCH_CHILDREN) >= 0)
+        ctx->depth_output = ctx->depth_probe = true;
 
     mp_set_avopts(vd->log, avctx, lavc_param->avopts);
 
@@ -1032,6 +1040,17 @@ static enum AVPixelFormat get_format_hwdec(struct AVCodecContext *avctx,
 
     ctx->hwdec_request_reinit |= ctx->hwdec_failed;
     ctx->hwdec_failed = false;
+
+#if HAVE_AV_DEPTH
+    // a depth layer that the user wants drawn (--video-depth): only software decoding outputs it
+    int64_t depth = 0;
+    if (ctx->depth_wanted && av_opt_get_int(avctx, "depth_available", AV_OPT_SEARCH_CHILDREN, &depth) >= 0 && depth) {
+        MP_INFO(vd, "The video has a depth layer, which only software decoding outputs: decoding in software.\n");
+        ctx->depth_software = true;
+        ctx->hwdec_failed = true;
+        return AV_PIX_FMT_NONE;
+    }
+#endif
 
     enum AVPixelFormat select = AV_PIX_FMT_NONE;
     for (int i = 0; fmt[i] != AV_PIX_FMT_NONE; i++) {

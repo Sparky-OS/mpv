@@ -1854,8 +1854,9 @@ Video
       registered as ``StereoMode`` values, or which ``--video-stereo-input``
       chooses;
     - as the depth auxiliary layer of an H.265 stream (``AuxId`` 2, H.265
-      Table F.2), decoded with the pictures; software decoding only, since no
-      hardware decoder outputs the layer;
+      Table F.2), decoded with the pictures; no hardware decoder outputs the
+      layer, so with ``--hwdec`` such a stream is decoded in software (with an
+      FFmpeg that says whether a stream has the layer, the edition's);
     - as a stream of its own: an ISO/IEC 23002-3 auxiliary video stream
       (MPEG-2 transport stream type 0x1E) or an MP4 auxiliary depth track,
       drawn by FFmpeg's ``dibr`` filter in a ``--lavfi-complex`` graph that
