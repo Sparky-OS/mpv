@@ -122,6 +122,7 @@ struct mp_codec_params {
     int stereo_mode;      // mp_stereo3d_mode (0 if none/unknown)
     int stereo_plane_w, stereo_plane_h; // Matroska DisplayWidth/Height of a stereo track: one plane (0 if not given)
     bool stereo_mode_set; // the stream says it (stereo_mode 0 is then a mono mark)
+    int aux_id;           // an auxiliary picture stream's AuxId (H.265 Table F.2): 2 for the depth of a picture (0 if not)
     int projection;       // mp_projection (0 if none/unknown)
     struct pl_color_space color; // colorspace info where available
     struct pl_color_repr repr;   // color representation info where available

@@ -769,6 +769,15 @@ static void handle_new_stream(demuxer_t *demuxer, int i)
             sh->codec->stereo_mode_set = true;
         }
 
+#if HAVE_AV_DEPTH
+        // a depth or parallax map for another video stream (an ISO/IEC 23002-3 auxiliary video stream, an ISOBMFF
+        // depth track)
+        if ((sd = mp_av_stream_get_side_data(st, AV_PKT_DATA_AUXILIARY_ID)))
+            sh->codec->aux_id = *(const int *)sd;
+        else if (mp_av_stream_get_side_data(st, AV_PKT_DATA_AUXILIARY_VIDEO_INFO))
+            sh->codec->aux_id = 2; // a parallax map, which the views are drawn from as from a depth map
+#endif
+
         if ((sd = mp_av_stream_get_side_data(st, AV_PKT_DATA_SPHERICAL)))
             sh->codec->projection = mp_projection_from_av((const AVSphericalMapping *)sd);
 

@@ -21,7 +21,10 @@
 #include <assert.h>
 #include <time.h>
 
+#include <libavutil/avstring.h>
 #include <libavutil/avutil.h>
+#include <libavutil/opt.h>
+#include <libavfilter/avfilter.h>
 
 #include "mpv_talloc.h"
 
@@ -40,6 +43,7 @@
 #include "options/parse_configfile.h"
 #include "common/playlist.h"
 #include "options/options.h"
+#include "video/csputils.h"
 #include "options/m_property.h"
 #include "common/common.h"
 #include "common/encode.h"
@@ -63,6 +67,9 @@
 
 #if HAVE_STEREO_POLICY
 #include <stereo-policy.h>
+#if HAVE_STEREO_DIBR
+#include <stereo-dibr.h>
+#endif
 #endif
 
 // Called from the demuxer thread if a new packet is available, or other changes.
@@ -1363,10 +1370,96 @@ static void kill_outputs(struct MPContext *mpctx, struct track *track)
     mp_assert(!(track->vo_c || track->ao_c));
 }
 
+static int reinit_complex_filters_graph(struct MPContext *mpctx, char *graph, bool force_uninit);
+
+// A video with its depth map in a stream of its own (an ISO/IEC 23002-3 auxiliary video stream, an ISOBMFF depth
+// track): the graph that draws its views with FFmpeg's dibr filter (libstereo-dibr, as vf_dibr), with the user's
+// choices, when nothing else asks for lavfi-complex.
+static char *depth_graph(void *ta_ctx, struct MPContext *mpctx)
+{
+    struct filter_opts *fo = mpctx->opts->filter_opts;
+    if (!fo->video_stereo || !fo->video_depth)
+        return NULL;
+    struct track *picture = NULL, *depth = NULL;
+    for (int n = 0; n < mpctx->num_tracks; n++) {
+        struct track *t = mpctx->tracks[n];
+        if (t->type != STREAM_VIDEO || t->image || !t->stream)
+            continue;
+        if (t->stream->codec->aux_id == 2) {
+            if (!depth)
+                depth = t;
+        } else if (!picture || (t->selected && !picture->selected)) {
+            picture = t;
+        }
+    }
+    if (!picture || !depth)
+        return NULL;
+    const AVFilter *dibr = avfilter_get_by_name("dibr");
+    if (!dibr) {
+        MP_WARN(mpctx, "The depth map of this video is a stream of its own, which needs FFmpeg's dibr filter: "
+                "the video is shown in 2D.\n");
+        return NULL;
+    }
+    // FFmpeg's names of what a depth sample means, as --video-depth-meaning orders them; the stream's own meaning when
+    // this FFmpeg lacks one
+    static const char *const meanings[] = {"nearness", "farness", "inverse_z", "disparity", "z", "nonlinear",
+                                           "parallax", "range_linear", "range_inverse", "metric"};
+    const char *meaning = "auto";
+    if (fo->video_depth_meaning >= 0 && fo->video_depth_meaning < MP_ARRAY_SIZE(meanings)) {
+        meaning = meanings[fo->video_depth_meaning];
+        if (!av_opt_find((void *)&dibr->priv_class, meaning, "depth", 0, AV_OPT_SEARCH_FAKE_OBJ)) {
+            MP_WARN(mpctx, "FFmpeg's dibr filter has no depth meaning %s: the stream's own is used.\n", meaning);
+            meaning = "auto";
+        }
+    }
+    char *graph = talloc_asprintf(ta_ctx, "[vid%d] [vid%d] dibr=view=%s:warp=%s:fill=%s:smooth=%s:sigma_h=%f:"
+        "sigma_v=%f:radius=%d:range=%f:zero=%f:shift=%f:depth=%s", picture->user_tid, depth->user_tid,
+        m_opt_choice_str(mp_depth_view_names, fo->video_depth_view),
+        m_opt_choice_str(mp_depth_warp_names, fo->video_depth_warp),
+        m_opt_choice_str(mp_depth_fill_names, fo->video_depth_fill),
+        m_opt_choice_str(mp_depth_smooth_names, fo->video_depth_smooth),
+        fo->video_depth_sigma_h, fo->video_depth_sigma_v, fo->video_depth_radius,
+        fo->video_depth_range, fo->video_depth_zero, fo->video_depth_shift, meaning);
+    if (fo->video_depth_near > 0 && fo->video_depth_far > 0)
+        graph = talloc_asprintf_append(graph, ":z_near=%f:z_far=%f", fo->video_depth_near, fo->video_depth_far);
+    // the user's Stereo3DDepth mark, escaped for the option and then for the graph
+    const char *mark = fo->video_depth_mark;
+    if (mark && mark[0]) {
+#if HAVE_STEREO_DIBR
+        struct stereo_depth_convention c = {0};
+        if (stereo_depth_read_mark(mark, &c, NULL, NULL) < 0) {
+            MP_WARN(mpctx, "Malformed --video-depth-mark: the video is shown in 2D.\n");
+            return NULL;
+        }
+#endif
+        if (!av_opt_find((void *)&dibr->priv_class, "mark", NULL, 0, AV_OPT_SEARCH_FAKE_OBJ)) {
+            MP_WARN(mpctx, "FFmpeg's dibr filter takes no depth mark: --video-depth-mark is not used.\n");
+        } else {
+            char *once = NULL, *twice = NULL;
+            if (av_escape(&once, mark, ":", AV_ESCAPE_MODE_BACKSLASH, 0) >= 0 &&
+                av_escape(&twice, once, "[],;", AV_ESCAPE_MODE_BACKSLASH, 0) >= 0)
+                graph = talloc_asprintf_append(graph, ":mark=%s", twice);
+            av_free(once);
+            av_free(twice);
+        }
+    }
+    return talloc_strdup_append(graph, " [vo]");
+}
+
 // >0: changed, 0: no change, -1: error
 static int reinit_complex_filters(struct MPContext *mpctx, bool force_uninit)
 {
     char *graph = mpctx->opts->lavfi_complex;
+    void *tmp = talloc_new(NULL);
+    if (!(graph && graph[0]))
+        graph = depth_graph(tmp, mpctx);
+    int r = reinit_complex_filters_graph(mpctx, graph, force_uninit);
+    talloc_free(tmp);
+    return r;
+}
+
+static int reinit_complex_filters_graph(struct MPContext *mpctx, char *graph, bool force_uninit)
+{
     bool have_graph = graph && graph[0] && !force_uninit;
     if (have_graph && mpctx->lavfi &&
         strcmp(graph, mpctx->lavfi_graph) == 0 &&
