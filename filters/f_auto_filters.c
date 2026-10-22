@@ -750,7 +750,7 @@ static void stereo_process(struct mp_filter *f)
         bool plane = stereo_has_plane(&img->params);
         if (declared || plane) {
             format_args[2] = "dar";
-            format_args[3] = mp_tprintf(32, "%f", declared ? view_aspect : 2 * view_aspect);
+            format_args[3] = mp_tprintf(32, "%.17g", declared ? view_aspect : 2 * view_aspect);
         }
         filters[2] = mp_create_user_filter(subf, MP_OUTPUT_CHAIN_VIDEO,
                                            "format", format_args);
