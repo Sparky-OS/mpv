@@ -1316,6 +1316,33 @@ void vo_query_formats(struct vo *vo, uint8_t *list)
 // out_dst: area of screen covered by the video source rectangle
 // out_osd: OSD size, OSD margins, etc.
 // Must be called from the VO thread only.
+// The video layer of a 3D video at the resolution of its views. The window,
+// win_w x win_h, shows one view of src's two (side by side in the frame's
+// samples) at dst. The layer is the window measured in the view's samples, so
+// each view goes to it as it is, never resized, and the compositor resizes the
+// layer once, to the window. view_dst is where the left view goes in the layer
+// (the right one goes layer_w / 2 further). Returns false where such a layer
+// would be larger than a texture can be (16384, current GPUs' maximum).
+bool vo_get_stereo_layer(int win_w, int win_h, const struct mp_rect *src,
+                         const struct mp_rect *dst, int *layer_w, int *layer_h,
+                         struct mp_rect *view_dst)
+{
+    int view_w = mp_rect_w(*src) / 2, view_h = mp_rect_h(*src);
+    int dst_w = mp_rect_w(*dst), dst_h = mp_rect_h(*dst);
+    if (view_w <= 0 || view_h <= 0 || dst_w <= 0 || dst_h <= 0 || win_w <= 0 || win_h <= 0)
+        return false;
+    // the view's samples per window pixel, along each axis
+    double kx = view_w / (double)dst_w, ky = view_h / (double)dst_h;
+    int x = lrint(dst->x0 * kx), y = lrint(dst->y0 * ky);
+    int w = MPMAX(lrint(win_w * kx), x + view_w), h = MPMAX(lrint(win_h * ky), y + view_h);
+    if (2 * w > 16384 || h > 16384)
+        return false;
+    *layer_w = 2 * w;
+    *layer_h = h;
+    *view_dst = (struct mp_rect){x, y, x + view_w, y + view_h};
+    return true;
+}
+
 void vo_get_src_dst_rects(struct vo *vo, struct mp_rect *out_src,
                           struct mp_rect *out_dst, struct mp_osd_res *out_osd)
 {

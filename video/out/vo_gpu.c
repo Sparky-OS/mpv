@@ -58,6 +58,11 @@ struct gpu_priv {
     bool stereo_wanted;
     struct mp_rect src, dst;
     struct mp_osd_res osd;
+    // A 3D video's layer at the resolution of its views, and where the left
+    // view goes in it; false where the views go at the window's size
+    bool stereo_native;
+    int layer_w, layer_h;
+    struct mp_rect view_dst;
 };
 static void resize(struct vo *vo)
 {
@@ -77,9 +82,19 @@ static void resize(struct vo *vo)
     gl_video_resize(p->renderer, &src, &dst, &osd);
 
     if (video_sw) {
-        // The video layer holds both views of a 3D video, and the video is
-        // what gets dithered
-        p->ctx->fns->resize_video(p->ctx, vo->dwidth * (p->stereo ? 2 : 1), vo->dheight);
+        // The video layer holds both views of a 3D video, each at the
+        // resolution it has, and the video is what gets dithered
+        int w = vo->dwidth, h = vo->dheight;
+        p->stereo_native = p->stereo &&
+            vo_get_stereo_layer(vo->dwidth, vo->dheight, &src, &dst, &p->layer_w,
+                                &p->layer_h, &p->view_dst);
+        if (p->stereo_native) {
+            w = p->layer_w;
+            h = p->layer_h;
+        } else if (p->stereo) {
+            w *= 2;
+        }
+        p->ctx->fns->resize_video(p->ctx, w, h);
         sw = video_sw;
     }
     int fb_depth = sw->fns->color_depth ? sw->fns->color_depth(sw) : 0;
@@ -121,15 +136,22 @@ static bool draw_frame_layers(struct vo *vo, struct vo_frame *frame)
     if (video_ok && !p->stereo) {
         gl_video_render_frame(p->renderer, frame, &video_fbo, RENDER_SCREEN_COLOR);
     } else if (video_ok) {
-        // Each eye gets its view at the window's size, centred in its half of the
-        // video layer, as for a window that shows one view
+        // Each eye gets its view in its half of the video layer: at the
+        // resolution it has, for the compositor to resize once, or else at the
+        // window's size, centred, as for a window that shows one view
         int half = (p->src.x1 - p->src.x0) / 2;
         for (int view = 0; view < 2; view++) {
             struct mp_rect src = p->src, dst = p->dst;
             src.x0 += view * half;
             src.x1 = src.x0 + half;
-            dst.x0 += view * vo->dwidth;
-            dst.x1 += view * vo->dwidth;
+            if (p->stereo_native) {
+                dst = p->view_dst;
+                dst.x0 += view * p->layer_w / 2;
+                dst.x1 += view * p->layer_w / 2;
+            } else {
+                dst.x0 += view * vo->dwidth;
+                dst.x1 += view * vo->dwidth;
+            }
             gl_video_set_view(p->renderer, view);
             gl_video_resize(p->renderer, &src, &dst, &p->osd);
             gl_video_render_frame(p->renderer, frame, &video_fbo, RENDER_SCREEN_COLOR |

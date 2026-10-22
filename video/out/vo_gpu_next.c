@@ -1286,10 +1286,20 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
     bool should_draw = sw->fns->start_frame(sw, NULL); // for wayland logic
     if (should_draw && !pl_swapchain_start_frame(p->sw, layered ? &ctlframe : &swframe))
         should_draw = false;
+    struct mp_rect view_dst = {0};
+    int layer_w = 0, layer_h = 0;
+    bool native = false;
     if (should_draw && layered) {
-        // The video layer holds both views when it is declared as stereo
+        // The video layer holds both views when it is declared as stereo, each
+        // at the resolution it has, or else at the window's size
         int w = ctlframe.fbo->params.w * (stereo ? 2 : 1);
         int h = ctlframe.fbo->params.h;
+        native = stereo && vo_get_stereo_layer(ctlframe.fbo->params.w, ctlframe.fbo->params.h,
+                                               &p->src, &p->dst, &layer_w, &layer_h, &view_dst);
+        if (native) {
+            w = layer_w;
+            h = layer_h;
+        }
         if (w != p->video_w || h != p->video_h) {
             p->video_w = w;
             p->video_h = h;
@@ -1485,8 +1495,9 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
     if (layered)
         vsw->fns->start_frame(vsw, NULL); // for contexts with a surface each
     bool render_ok = true;
-    // Each eye gets its view at the window's size, centred in its half of the
-    // video layer, as for a window that shows one view.
+    // Each eye gets its view in its half of the video layer: at the resolution
+    // it has, for the compositor to resize once, or else at the window's size,
+    // centred, as for a window that shows one view.
     for (int view = 0; view < (stereo ? 2 : 1) && render_ok; view++) {
         struct pl_render_params view_params = params;
         if (stereo) {
@@ -1494,8 +1505,14 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
             int half = (src.x1 - src.x0) / 2;
             src.x0 += view * half;
             src.x1 = src.x0 + half;
-            dst.x0 += view * ctlframe.fbo->params.w;
-            dst.x1 += view * ctlframe.fbo->params.w;
+            if (native) {
+                dst = view_dst;
+                dst.x0 += view * layer_w / 2;
+                dst.x1 += view * layer_w / 2;
+            } else {
+                dst.x0 += view * ctlframe.fbo->params.w;
+                dst.x1 += view * ctlframe.fbo->params.w;
+            }
             for (int i = 0; i < mix.num_frames; i++) {
                 apply_crop((struct pl_frame *) mix.frames[i], src,
                            vo->params->w, vo->params->h);

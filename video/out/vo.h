@@ -587,6 +587,9 @@ struct mp_keymap {
 int lookup_keymap_table(const struct mp_keymap *map, int key);
 
 struct mp_osd_res;
+bool vo_get_stereo_layer(int win_w, int win_h, const struct mp_rect *src,
+                         const struct mp_rect *dst, int *layer_w, int *layer_h,
+                         struct mp_rect *view_dst);
 void vo_get_src_dst_rects(struct vo *vo, struct mp_rect *out_src,
                           struct mp_rect *out_dst, struct mp_osd_res *out_osd);
 
